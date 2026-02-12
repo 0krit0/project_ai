@@ -12,7 +12,7 @@
     <section class="auth-card">
       <h1 class="auth-title">CarDamage AI</h1>
       <p class="auth-sub">ระบบประเมินความเสียหายรถยนต์ด้วย AI</p>
-      <a href="/login"><button class="btn" type="button" style="width:100%">เข้าสู่ระบบ</button></a>
+      <a class="btn primary block" href="/login">เข้าสู่ระบบ</a>
     </section>
   </main>
 {% else %}
@@ -20,11 +20,14 @@
     <aside class="sidebar">
       <div class="brand">CarDamage AI</div>
       <div class="tagline">เครื่องมือประเมินความเสียหายเบื้องต้น</div>
-      <div class="tagline">ผู้ใช้: {{ session.user.name }}</div>
+      <div class="tagline">ผู้ใช้: <span class="mono">{{ session.user.name }}</span></div>
       <nav class="nav">
         <a href="/">วิเคราะห์</a>
         <a href="/history">ประวัติ</a>
         <a href="/profile">โปรไฟล์</a>
+        {% if is_admin %}
+        <a href="/admin">แอดมิน</a>
+        {% endif %}
         <a href="/export_csv">ส่งออก CSV</a>
         <a href="/logout">ออกจากระบบ</a>
       </nav>
@@ -36,8 +39,9 @@
         <p>อัปโหลดภาพ 1 รูป เลือกตำแหน่งความเสียหาย และตรวจผลลัพธ์ AI พร้อมคำแนะนำซ่อมเบื้องต้น</p>
       </header>
 
-      <section class="grid">
-        <article class="card">
+      <section class="workbench">
+        <div class="grid">
+          <article class="card soft">
           <h3>เริ่มวิเคราะห์</h3>
           <form method="post" enctype="multipart/form-data" id="analyzeForm">
             <label for="part">ตำแหน่งความเสียหาย</label>
@@ -55,41 +59,108 @@
             <input id="file" type="file" name="file" accept="image/*" required>
             <p class="helper">แนะนำภาพที่เห็นจุดเสียหายชัดเจน ไม่เบลอ และไม่มืดเกินไป</p>
 
-            <button class="btn" type="submit" id="analyzeBtn">วิเคราะห์ทันที</button>
+            <div class="inline-actions">
+              <button class="btn primary" type="submit" id="analyzeBtn">วิเคราะห์ทันที</button>
+              <span class="helper">ใช้เวลาประมวลผลประมาณ 1-3 วินาที</span>
+            </div>
           </form>
-        </article>
+          </article>
 
-        {% if warning %}
-        <article class="card">
-          <div class="notice error">{{ warning }}</div>
-        </article>
-        {% endif %}
+          {% if warning %}
+          <article class="card">
+            <div class="notice error">{{ warning }}</div>
+          </article>
+          {% endif %}
 
-        {% if result %}
-        <article class="card">
+          {% if result %}
+          <article class="card focus-card">
           <h3>ผลการประเมิน</h3>
-          <div class="kpis">
-            <div class="kpi">
-              <div class="label">ระดับความเสียหาย</div>
-              <div class="value"><span class="badge {{ result }}">{{ result }}</span></div>
-            </div>
-            <div class="kpi">
-              <div class="label">ความมั่นใจของโมเดล</div>
-              <div class="value">{{ confidence }}%</div>
-            </div>
-            <div class="kpi">
-              <div class="label">ระดับความเชื่อมั่น</div>
-              <div class="value">{{ trust }}</div>
-            </div>
+          <div class="result-shell">
+            <section class="decision-panel">
+              <div class="decision-row">
+                <div>
+                  <div class="label">ระดับความเสียหายที่ประเมินได้</div>
+                  <div class="value" style="margin-top:4px"><span class="badge {{ result }}">{{ result }}</span></div>
+                </div>
+                <div class="decision-main">{{ decision }}</div>
+              </div>
+            </section>
+
+            <section class="confidence-wrap">
+              <div class="confidence-head">
+                <span>ความมั่นใจของโมเดล</span>
+                <span class="mono">{{ confidence }}%</span>
+              </div>
+              <div class="confidence-bar">
+                <div class="confidence-fill {% if confidence >= 70 %}high{% elif confidence >= 40 %}medium{% endif %}" style="width: {{ confidence }}%"></div>
+              </div>
+              <p class="helper" style="margin-bottom:0">ระดับความเชื่อมั่น: <b>{{ trust }}</b></p>
+            </section>
+
+            {% if policy %}
+            <section class="policy-box {{ policy.flag }}">
+              <div class="label">Confidence Policy</div>
+              <div class="policy-title">{{ policy.tier }}</div>
+              <p class="helper">{{ policy.advice }}</p>
+            </section>
+            {% endif %}
+
+            <section class="result-grid">
+              <div class="kpi">
+                <div class="label">สภาพที่พบ</div>
+                <ul class="advice-list">
+                  <li>{{ detail.description }}</li>
+                </ul>
+              </div>
+              <div class="kpi">
+                <div class="label">แนวทางซ่อมเบื้องต้น</div>
+                <ul class="advice-list">
+                  <li>{{ detail.repair }}</li>
+                </ul>
+              </div>
+            </section>
+
+            {% if quality_notes %}
+            <section class="quality-box">
+              <div class="label">ผลตรวจคุณภาพภาพก่อนวิเคราะห์</div>
+              <ul class="advice-list">
+                {% for note in quality_notes %}
+                <li>{{ note }}</li>
+                {% endfor %}
+              </ul>
+            </section>
+            {% endif %}
+
+            {% if evidence_items %}
+            <section class="evidence-box">
+              <div class="label">Evidence Panel (Top-3)</div>
+              <ul class="evidence-list">
+                {% for item in evidence_items %}
+                <li>
+                  <span class="evidence-label">{{ item.label }}</span>
+                  <div class="evidence-meter"><span style="width: {{ item.score }}%"></span></div>
+                  <span class="evidence-score">{{ item.score }}%</span>
+                </li>
+                {% endfor %}
+              </ul>
+            </section>
+            {% endif %}
+
+            {% if heatmap_path %}
+            <section class="heatmap-box">
+              <div class="label">พื้นที่ที่โมเดลให้ความสำคัญ (Explainability)</div>
+              <img class="heatmap-image" src="/{{ heatmap_path }}" alt="heatmap">
+            </section>
+            {% endif %}
+
+            <section class="snapshot-box">
+              <div class="label">Analysis Snapshot</div>
+              <div id="analysisSnapshot" class="snapshot-text">{{ selected_part }} | {{ result }} | {{ confidence }}% | {{ trust }}</div>
+              <button id="copySnapshotBtn" class="btn ghost" type="button">คัดลอกสรุป</button>
+            </section>
           </div>
 
-          <p style="margin-top:14px"><b>คำแนะนำหลัก:</b> {{ decision }}</p>
-          <ul>
-            <li>{{ detail.description }}</li>
-            <li>{{ detail.repair }}</li>
-          </ul>
-
-          <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+          <hr class="section-divider">
 
           <h3>Feedback ผลลัพธ์</h3>
           <form method="post" action="/feedback" id="feedbackForm">
@@ -97,19 +168,66 @@
             <input type="hidden" name="result" value="{{ result }}">
             <input type="hidden" name="confidence" value="{{ confidence }}">
 
-            <label>
-              <input type="radio" name="is_correct" value="yes" required> ผลลัพธ์ถูกต้อง
-            </label>
-            <label>
-              <input type="radio" name="is_correct" value="no"> ผลลัพธ์ยังไม่ถูกต้อง
-            </label>
+            <div class="radio-row">
+              <label class="radio-chip">
+                <input type="radio" name="is_correct" value="yes" required> ผลลัพธ์ถูกต้อง
+              </label>
+              <label class="radio-chip">
+                <input type="radio" name="is_correct" value="no"> ผลลัพธ์ยังไม่ถูกต้อง
+              </label>
+            </div>
 
             <label for="comment">ข้อเสนอแนะเพิ่มเติม</label>
             <textarea id="comment" name="comment" placeholder="ระบุสิ่งที่ควรปรับปรุง เช่น ระดับความเสียหายควรเป็น medium"></textarea>
-            <button class="btn secondary" type="submit">ส่ง Feedback</button>
+            <button class="btn warm" type="submit">ส่ง Feedback</button>
           </form>
-        </article>
-        {% endif %}
+          </article>
+          {% endif %}
+        </div>
+
+        <aside class="right-rail">
+          <article id="previewCard" class="card rail-card rail-sticky {% if not image_path %}hidden-rail-card{% endif %}">
+            <h3>ตัวอย่างรูปที่กำลังใช้งาน</h3>
+            <img id="previewImage" class="preview-image {% if not image_path %}is-empty{% endif %}" {% if image_path %}src="/{{ image_path }}"{% endif %} alt="preview">
+          </article>
+
+          <article class="card rail-card">
+            <h3>ภาพรวมใช้งาน</h3>
+            <div class="kpis">
+              <div class="kpi">
+                <div class="label">วิเคราะห์ทั้งหมด</div>
+                <div class="value">{{ quick_stats.total }} ครั้ง</div>
+              </div>
+              <div class="kpi">
+                <div class="label">ความมั่นใจเฉลี่ย</div>
+                <div class="value">{{ quick_stats.avg_conf }}%</div>
+              </div>
+              <div class="kpi">
+                <div class="label">ครั้งล่าสุด</div>
+                <div class="value">{{ quick_stats.last_time }}</div>
+              </div>
+            </div>
+          </article>
+
+          <article class="card rail-card">
+            <h3>ล่าสุด 3 รายการ</h3>
+            {% if recent_records %}
+            <ul class="recent-list">
+              {% for r in recent_records %}
+              <li>
+                <div>
+                  <div class="recent-main">{{ r.part }} <span class="badge {{ r.result }}">{{ r.result }}</span></div>
+                  <div class="helper">ความมั่นใจ {{ r.confidence }}%</div>
+                </div>
+                <div class="recent-time">{{ r.datetime }}</div>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <div class="notice empty">ยังไม่มีข้อมูลการวิเคราะห์</div>
+            {% endif %}
+          </article>
+        </aside>
       </section>
     </main>
   </div>
@@ -119,11 +237,44 @@
 (function () {
   const analyzeForm = document.getElementById('analyzeForm');
   const analyzeBtn = document.getElementById('analyzeBtn');
+  const fileInput = document.getElementById('file');
+  const previewCard = document.getElementById('previewCard');
+  const previewImage = document.getElementById('previewImage');
+  const copySnapshotBtn = document.getElementById('copySnapshotBtn');
+  const analysisSnapshot = document.getElementById('analysisSnapshot');
 
   if (analyzeForm && analyzeBtn) {
     analyzeForm.addEventListener('submit', function () {
       analyzeBtn.disabled = true;
       analyzeBtn.textContent = 'กำลังวิเคราะห์...';
+    });
+  }
+
+  if (fileInput && previewImage) {
+    fileInput.addEventListener('change', function (e) {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        if (previewCard) previewCard.classList.remove('hidden-rail-card');
+        previewImage.src = event.target.result;
+        previewImage.classList.remove('is-empty');
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  if (copySnapshotBtn && analysisSnapshot) {
+    copySnapshotBtn.addEventListener('click', async function () {
+      try {
+        await navigator.clipboard.writeText(analysisSnapshot.textContent.trim());
+        copySnapshotBtn.textContent = 'คัดลอกแล้ว';
+        setTimeout(function () {
+          copySnapshotBtn.textContent = 'คัดลอกสรุป';
+        }, 1200);
+      } catch (err) {
+        copySnapshotBtn.textContent = 'คัดลอกไม่สำเร็จ';
+      }
     });
   }
 })();

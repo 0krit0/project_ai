@@ -4,94 +4,92 @@ Last updated: 2026-02-12
 Owner: project_ai team
 
 ## Current Goal
-- Stabilize and polish CarDamage AI before active development.
-- Ensure Thai text is readable across UI/backend.
-- Upgrade UX/UI so the app feels production-like (consistent, clear, usable on mobile).
+- Move CarDamage AI from demo-level UX to a usable operational tool.
+- Keep analysis flow simple for users while adding operational controls for admin.
+- Preserve fast iteration speed with local Flask + TensorFlow stack.
 
 ## Current Status
-- Core flow works: login -> analyze image -> show result -> feedback -> history/profile/export CSV.
-- Major text encoding cleanup completed (garbled Thai removed in core files).
-- UX/UI redesign completed across login/index/history/profile with one shared design system.
-- Changes are local and not committed yet.
+- End-to-end flow works: login -> analyze -> result -> feedback -> history/profile/export.
+- Storage migrated to SQLite (`app.db`) with CSV migration helper retained.
+- UI is now unified via `static/ui.css` across login/index/history/profile/admin.
+- Integration tests pass for main flow and admin access guard.
+- Server currently reachable at `http://127.0.0.1:5000/login`.
 
-## Completed This Session (Detailed)
-1. Baseline code cleanup
-- Removed broken template wrappers and stray triple-quote markers.
-- Updated Flask secret key usage from hardcoded string to env-based fallback.
+## Major Changes Implemented (Latest)
+1. Backend hardening and operations
+- Added app logging via rotating file handler (`run.app.log`).
+- Added analyze request rate limiting (per user, window-based).
+- Added optional login password check via env `APP_LOGIN_PASSWORD`.
+- Added admin role check (current rule: username == `ADMIN_USERNAME`, default `admin`).
 
-2. Thai encoding cleanup (UTF-8 rewrite)
-- Rewrote garbled Thai text in backend and templates.
-- Rebuilt `rules.py` with clean Thai keys/values and aligned with UI part names.
-- Standardized CSV export header Thai text.
+2. Explainability and decision policy
+- Added Grad-CAM style heatmap overlay generation for analyzed images.
+- Added confidence policy mapping into 3 tiers with actionable guidance.
+- Kept top-3 evidence panel and quality notes in result view.
 
-3. UX/UI full redesign
-- Added shared stylesheet: `static/ui.css`.
-- Migrated all core pages to shared visual language:
-  - `templates/login.html`
-  - `templates/index.html`
-  - `templates/history.html`
-  - `templates/profile.html`
-- Improved information hierarchy on result view (decision-first with KPI blocks).
-- Added UX states:
-  - loading state on analyze button
-  - warning/error notice block on index
-  - empty state on history page
-- Kept responsive behavior for desktop/mobile.
+3. Admin features
+- Added `/admin` dashboard with:
+  - total users
+  - total analyses
+  - analyses in last 24h
+  - average confidence
+  - result distribution
+  - recent feedback table
+- Added database maintenance routes:
+  - `/admin/backup` download SQLite backup
+  - `/admin/restore` upload and restore `.db`
 
-4. Validation
-- Python syntax check passed (`py_compile`) for key python files.
-- Emoji scan run: no emoji left in code/templates/config files.
+4. Profile upgrades
+- Added richer profile dashboard with:
+  - total analyses
+  - average confidence
+  - top damaged part
+  - last activity time
+  - recent 5 records
 
-## Files Touched (Current Working Tree)
+5. UI/UX updates
+- Added admin menu visibility on index/history/profile for admin users.
+- Added confidence policy card and heatmap panel on result section.
+- Improved login form to support optional password field + warning message.
+- Added style blocks for policy/heatmap/profile/admin in `static/ui.css`.
+
+6. Testing and verification
+- Updated integration tests (`tests/test_integration_flow.py`) to cover:
+  - full user flow
+  - invalid upload extension
+  - admin access behavior
+- Ran tests successfully: `python -m unittest tests.test_integration_flow -v`.
+- Ran syntax check: `python -m py_compile app.py db.py`.
+
+## Key Config / Env
+- `FLASK_SECRET_KEY`
+- `APP_LOGIN_PASSWORD` (optional)
+- `ADMIN_USERNAME` (default `admin`)
+- `ANALYZE_RATE_LIMIT_COUNT` (default `8`)
+- `ANALYZE_RATE_LIMIT_WINDOW_SEC` (default `60`)
+- `MAX_UPLOAD_BYTES` (default `5MB`)
+- `APP_LOG_PATH` (default `run.app.log`)
+
+## Main Files Involved
 - `app.py`
-- `rules.py`
-- `retrain.py`
-- `retrain_condition.py`
-- `train.py/train.py`
-- `test_model.py`
 - `db.py`
 - `templates/index.html`
 - `templates/login.html`
 - `templates/history.html`
 - `templates/profile.html`
-- `static/ui.css` (new)
-- `static/manifest.json`
-- `static/service_worker.js`
+- `templates/admin.html` (new)
+- `static/ui.css`
+- `tests/test_integration_flow.py`
 
-## Important Design Decisions
-- Keep Flask + CSV flow unchanged for now (no DB migration yet) to avoid scope creep.
-- Prioritize UX consistency and readability first.
-- Preserve existing functional behavior while redesigning UI.
+## Known Risks / Follow-ups
+- Current admin identification by username is simple; should move to explicit role table.
+- Runtime artifacts (feedback images, logs, status files) are present in working tree.
+- Model confidence remains probabilistic; should add calibration if using for cost estimate.
+- Restore DB is powerful; consider adding second confirmation and audit trail.
 
-## Known Risks / Gaps
-- UI is redesigned from code but still needs live browser smoke test.
-- `debug=True` still enabled in `app.py` (ok for dev, not for production).
-- Secret key fallback still dev-like if env var is not set.
-- `db.py` exists but app currently uses CSV logs.
-- Retrained model files are versioned, but serving model switch strategy is still undefined.
-
-## Pending Tasks
-- [ ] Run live functional smoke test in browser (all pages + analyze + feedback + export).
-- [ ] Decide whether to keep CSV or migrate to SQLite (`db.py`).
-- [ ] Add `.gitignore` for `__pycache__/` and model/temp artifacts.
-- [ ] Clean pycache artifacts currently appearing in git status.
-- [ ] Commit and push current changes in logical chunks.
-
-## Suggested Commit Plan
-1. `chore: baseline template and security cleanup`
-- app secret key env fallback + template quote cleanup
-
-2. `fix: normalize thai utf-8 text across app and rules`
-- app/rules/templates/scripts text cleanup
-
-3. `feat: redesign UI with shared style system`
-- new `static/ui.css` + all page redesigns + loading/empty/error states
-
-## Next Immediate Step
-- Review app visually in browser and capture any final spacing/text issues.
-- Then clean pycache + create `.gitignore` + commit/push.
-
-## Quick Start for Next Session
-1. Read this file first.
-2. Run `git status --short` to verify uncommitted changes.
-3. Start from "Next Immediate Step".
+## Suggested Next Engineering Steps
+1. Add proper auth (password hash + roles in DB).
+2. Add `.gitignore` policy for runtime artifacts and logs.
+3. Add audit log table for admin actions (backup/restore).
+4. Add model/version metadata to each history record.
+5. Add API endpoint layer (for mobile or external integration).

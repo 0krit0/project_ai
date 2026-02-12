@@ -1,0 +1,123 @@
+﻿<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>แอดมิน | CarDamage AI</title>
+<link rel="stylesheet" href="/static/ui.css">
+</head>
+<body>
+<div class="page">
+  <aside class="sidebar">
+    <div class="brand">CarDamage AI</div>
+    <div class="tagline">Admin Console</div>
+    <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
+    <nav class="nav">
+      <a href="/">วิเคราะห์</a>
+      <a href="/history">ประวัติ</a>
+      <a href="/profile">โปรไฟล์</a>
+      <a href="/admin">แอดมิน</a>
+      <a href="/export_csv">ส่งออก CSV</a>
+      <a href="/logout">ออกจากระบบ</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <header class="header">
+      <h1>Admin Monitor</h1>
+      <p>ภาพรวมระบบ, feedback ล่าสุด และเครื่องมือสำรอง/กู้คืนฐานข้อมูล</p>
+    </header>
+
+    {% if admin_warning %}
+    <div class="notice error" style="margin-bottom:12px">{{ admin_warning }}</div>
+    {% endif %}
+    {% if admin_success %}
+    <div class="notice ok" style="margin-bottom:12px">{{ admin_success }}</div>
+    {% endif %}
+
+    <section class="card soft">
+      <h3>System Metrics</h3>
+      <div class="kpis profile-kpis">
+        <div class="kpi">
+          <div class="label">ผู้ใช้ทั้งหมด</div>
+          <div class="value">{{ metrics.total_users }}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">วิเคราะห์ทั้งหมด</div>
+          <div class="value">{{ metrics.total_analyses }}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">วิเคราะห์ 24 ชม. ล่าสุด</div>
+          <div class="value">{{ metrics.last_24h }}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">ความมั่นใจเฉลี่ย</div>
+          <div class="value">{{ metrics.avg_conf }}%</div>
+        </div>
+      </div>
+
+      <h4 style="margin-top:14px">Distribution</h4>
+      {% if metrics.distribution %}
+      <ul class="recent-list profile-recent">
+        {% for d in metrics.distribution %}
+        <li>
+          <div class="recent-main">{{ d.result }}</div>
+          <div class="recent-time">{{ d.cnt }} รายการ</div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="notice empty">ยังไม่มีข้อมูลวิเคราะห์ในระบบ</div>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h3>Database Operations</h3>
+      <div class="inline-actions" style="margin-bottom:12px">
+        <a class="btn primary" href="/admin/backup">ดาวน์โหลด Backup (.db)</a>
+      </div>
+      <form method="post" action="/admin/restore" enctype="multipart/form-data">
+        <label for="db_file">กู้คืนฐานข้อมูลจากไฟล์ .db</label>
+        <input id="db_file" type="file" name="db_file" accept=".db" required>
+        <div class="helper">คำเตือน: การกู้คืนจะทับข้อมูลปัจจุบันทั้งหมด</div>
+        <button class="btn warm" type="submit" style="margin-top:10px">Restore Database</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h3>Feedback ล่าสุด</h3>
+      {% if feedback_rows %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>เวลา</th>
+              <th>ผู้ใช้</th>
+              <th>ผล</th>
+              <th>มั่นใจ</th>
+              <th>ถูกต้อง?</th>
+              <th>คอมเมนต์</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in feedback_rows %}
+            <tr>
+              <td data-label="เวลา">{{ f.datetime }}</td>
+              <td data-label="ผู้ใช้">{{ f.username }}</td>
+              <td data-label="ผล"><span class="badge {{ f.result }}">{{ f.result }}</span></td>
+              <td data-label="มั่นใจ">{{ f.confidence if f.confidence is not none else '-' }}</td>
+              <td data-label="ถูกต้อง?">{{ f.is_correct }}</td>
+              <td data-label="คอมเมนต์">{{ f.comment or '-' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="notice empty">ยังไม่มี feedback</div>
+      {% endif %}
+    </section>
+  </main>
+</div>
+</body>
+</html>

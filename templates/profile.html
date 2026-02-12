@@ -15,6 +15,9 @@
       <a href="/">วิเคราะห์</a>
       <a href="/history">ประวัติ</a>
       <a href="/profile">โปรไฟล์</a>
+      {% if is_admin %}
+      <a href="/admin">แอดมิน</a>
+      {% endif %}
       <a href="/export_csv">ส่งออก CSV</a>
       <a href="/logout">ออกจากระบบ</a>
     </nav>
@@ -23,28 +26,60 @@
   <main class="main">
     <header class="header">
       <h1>โปรไฟล์ผู้ใช้</h1>
-      <p>ภาพรวมการใช้งานและสถานะล่าสุดของบัญชีนี้</p>
+      <p>ภาพรวมการใช้งาน คุณภาพผลวิเคราะห์ และประวัติล่าสุดของบัญชีนี้</p>
     </header>
 
-    <section class="card" style="max-width:720px">
-      <div class="kpis">
-        <div class="kpi">
-          <div class="label">ชื่อผู้ใช้งาน</div>
-          <div class="value">{{ username }}</div>
-        </div>
+    <section class="card soft profile-hero">
+      <div>
+        <div class="label">บัญชีผู้ใช้งาน</div>
+        <div class="value mono profile-name">{{ username }}</div>
+        <p class="helper">สถิตินี้ช่วยดูพฤติกรรมการใช้งานและความสม่ำเสมอของข้อมูลภาพที่อัปโหลด</p>
+      </div>
+      <div class="profile-actions">
+        <a class="btn primary" href="/export_csv">ดาวน์โหลดประวัติเป็น CSV</a>
+        <a class="btn ghost" href="/history">ดูประวัติทั้งหมด</a>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>สรุปการใช้งาน</h3>
+      <div class="kpis profile-kpis">
         <div class="kpi">
           <div class="label">จำนวนครั้งที่วิเคราะห์</div>
           <div class="value">{{ total }} ครั้ง</div>
+        </div>
+        <div class="kpi">
+          <div class="label">ความมั่นใจเฉลี่ย</div>
+          <div class="value">{{ insights.avg_conf }}%</div>
+        </div>
+        <div class="kpi">
+          <div class="label">ตำแหน่งที่พบมากสุด</div>
+          <div class="value">{{ insights.top_part }}</div>
         </div>
         <div class="kpi">
           <div class="label">ใช้งานล่าสุด</div>
           <div class="value">{{ last_time }}</div>
         </div>
       </div>
+    </section>
 
-      <div style="margin-top:16px">
-        <a href="/export_csv"><button class="btn" type="button">ดาวน์โหลดประวัติเป็น CSV</button></a>
-      </div>
+    <section class="card">
+      <h3>รายการล่าสุด 5 รายการ</h3>
+      {% if recent_records %}
+      <ul class="recent-list profile-recent">
+        {% for r in recent_records %}
+        <li>
+          <div>
+            <div class="recent-main">{{ r.part }} <span class="badge {{ r.result }}">{{ r.result }}</span></div>
+            <div class="helper">{{ r.confidence }}% | {{ r.trust }}</div>
+          </div>
+          <div class="recent-time">{{ r.datetime }}</div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="notice empty">ยังไม่มีข้อมูลวิเคราะห์</div>
+      {% endif %}
     </section>
   </main>
 </div>
