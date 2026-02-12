@@ -1,0 +1,18 @@
+datetime,username,part,result,confidence,trust,image_path
+2026-01-28 12:44:11,Kritsanapong1624,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images/medium/20260128_124411.jpg
+2026-01-28 12:44:19,Kritsanapong1624,ประตู,medium,91.05,ความมั่นใจสูง,feedback_images/medium/20260128_124419.jpg
+2026-01-28 12:44:27,Kritsanapong1624,ฝากระโปรงหน้า,low,70.11,ความมั่นใจสูง,feedback_images/low/20260128_124427.jpg
+2026-01-28 14:58:23,Kritsanapong1624,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images/medium/20260128_145823.jpg
+2026-01-31 09:15:04,Kritsanapong1624,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images/medium/20260131_091504.jpg
+2026-01-31 09:15:15,Kritsanapong1624,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images/medium/20260131_091515.jpg
+2026-01-31 09:31:37,Kritsanapong1624,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images/medium/20260131_093137.jpg
+2026-01-31 09:34:47,Kritsanapong1624,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images/medium/20260131_093447.jpg
+2026-01-31 09:40:31,Kritsanapong1624,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images\medium\20260131_094031.jpg
+2026-01-31 09:41:23,Kritsanapong1624,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images\medium\20260131_094123.jpg
+2026-01-31 10:27:52,krit7373645,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images\medium\20260131_102752.jpg
+2026-01-31 11:12:03,krit7373645,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images\medium\20260131_111203.jpg
+2026-01-31 11:13:10,krit7373645,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images\medium\20260131_111310.jpg
+2026-02-03 14:11:37,krit322,กันชนหน้า,medium,53.78,ความมั่นใจปานกลาง,feedback_images\medium\20260203_141137.jpg
+2026-02-07 10:43:23,krit322,กันชนหน้า,low,90.96,ความมั่นใจสูง,feedback_images\low\20260207_104323.jpg
+2026-02-07 10:44:18,krit322,ไฟหน้า,low,90.96,ความมั่นใจสูง,feedback_images\low\20260207_104418.jpg
+2026-02-07 10:44:31,krit322,ไฟหน้า,low,90.96,ความมั่นใจสูง,feedback_images\low\20260207_104431.jpg

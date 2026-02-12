@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>เข้าสู่ระบบ | CarDamage AI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+:root{
+  --bg-main:#0b0f19;
+  --card:#111827;
+  --neon:#22d3ee;
+  --primary:#3b82f6;
+  --text:#e5e7eb;
+  --muted:#9ca3af;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:radial-gradient(circle at top,#0f172a,#020617);
+  font-family:"Segoe UI",sans-serif;
+  color:var(--text);
+}
+
+.login-card{
+  width:100%;
+  max-width:420px;
+  background:rgba(17,24,39,0.95);
+  border-radius:18px;
+  padding:32px;
+  border:1px solid rgba(34,211,238,0.25);
+  box-shadow:0 0 40px rgba(0,0,0,0.6);
+}
+
+.login-card h2{
+  margin-top:0;
+  text-align:center;
+  color:var(--neon);
+  text-shadow:0 0 12px rgba(34,211,238,0.7);
+}
+
+.login-card p{
+  text-align:center;
+  color:var(--muted);
+  margin-bottom:28px;
+}
+
+label{
+  display:block;
+  margin-bottom:6px;
+  color:var(--muted);
+}
+
+input{
+  width:100%;
+  padding:12px 14px;
+  border-radius:12px;
+  border:1px solid rgba(34,211,238,0.3);
+  background:#020617;
+  color:var(--text);
+  margin-bottom:18px;
+}
+
+input:focus{
+  outline:none;
+  box-shadow:0 0 0 2px rgba(34,211,238,0.4);
+}
+
+.btn-login{
+  width:100%;
+  padding:14px;
+  border:none;
+  border-radius:14px;
+  font-weight:bold;
+  cursor:pointer;
+  background:linear-gradient(135deg,var(--neon),var(--primary));
+  color:#020617;
+  box-shadow:0 0 20px rgba(34,211,238,0.7);
+  transition:.15s;
+}
+
+.btn-login:hover{
+  transform:translateY(-2px);
+  box-shadow:0 0 32px rgba(34,211,238,1);
+}
+
+.footer{
+  margin-top:18px;
+  text-align:center;
+  font-size:13px;
+  color:var(--muted);
+}
+</style>
+</head>
+
+<body>
+
+<div class="login-card">
+  <h2>🚗 CarDamage AI</h2>
+  <p>เข้าสู่ระบบเพื่อเริ่มวิเคราะห์ความเสียหายรถยนต์</p>
+
+  <form method="post">
+    <label>กรอกชื่อของคุณ</label>
+    <input type="text" name="username" placeholder="เช่น Somchai" required>
+
+    <button class="btn-login" type="submit">🔐 เข้าสู่ระบบ</button>
+  </form>
+
+  <div class="footer">
+    ระบบต้นแบบเพื่อการศึกษาและการประเมินเบื้องต้น
+  </div>
+</div>
+
+</body>
+</html>

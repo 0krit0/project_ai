@@ -1,0 +1,118 @@
+HISTORY_HTML = """
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ประวัติการใช้งาน</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+  margin: 0;
+  font-family: "Segoe UI", sans-serif;
+  background: #f5f7fa;
+}
+.wrapper {
+  display: flex;
+  min-height: 100vh;
+}
+.sidebar {
+  width: 220px;
+  background: #0d6efd;
+  color: white;
+  padding: 20px;
+}
+.sidebar h2 {
+  margin-top: 0;
+}
+.sidebar a {
+  display: block;
+  color: white;
+  text-decoration: none;
+  margin: 12px 0;
+}
+.content {
+  flex: 1;
+  padding: 30px;
+}
+.card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+  text-align: center;
+}
+img {
+  border-radius: 6px;
+}
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrapper">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h2>🚗 CarAI</h2>
+    <div>👤 {{ username }}</div>
+    <hr>
+    <a href="/">📷 วิเคราะห์</a>
+    <a href="/history">📜 ประวัติ</a>
+    <a href="/profile">👤 โปรไฟล์</a>
+    <a href="/export_csv">📥 Export CSV</a>
+    <a href="/logout">🚪 ออกจากระบบ</a>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+    <div class="card">
+      <h3>📜 ประวัติการใช้งาน</h3>
+
+      {% if records %}
+      <table>
+        <tr>
+          <th>วันที่</th>
+          <th>ตำแหน่ง</th>
+          <th>ผล AI</th>
+          <th>ความมั่นใจ (%)</th>
+          <th>ความเชื่อมั่น</th>
+          <th>รูป</th>
+        </tr>
+
+        {% for r in records %}
+        <tr>
+          <td>{{ r.datetime }}</td>
+          <td>{{ r.part }}</td>
+          <td>{{ r.result }}</td>
+          <td>{{ r.confidence }}</td>
+          <td>{{ r.trust }}</td>
+          <td>
+            <img src="/{{ r.image_path }}" width="100">
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}
+        <p>ยังไม่มีประวัติการใช้งาน</p>
+      {% endif %}
+
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
+"""

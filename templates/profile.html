@@ -1,0 +1,88 @@
+PROFILE_HTML = """
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>โปรไฟล์ผู้ใช้</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+  margin: 0;
+  font-family: "Segoe UI", sans-serif;
+  background: #f5f7fa;
+}
+.wrapper {
+  display: flex;
+  min-height: 100vh;
+}
+.sidebar {
+  width: 220px;
+  background: #0d6efd;
+  color: white;
+  padding: 20px;
+}
+.sidebar a {
+  display: block;
+  color: white;
+  text-decoration: none;
+  margin: 12px 0;
+}
+.content {
+  flex: 1;
+  padding: 30px;
+}
+.card {
+  max-width: 420px;
+  margin: auto;
+  background: white;
+  padding: 25px;
+  border-radius: 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  text-align: center;
+}
+.stat {
+  font-size: 18px;
+  margin: 12px 0;
+}
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrapper">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h2>🚗 CarAI</h2>
+    <hr>
+    <a href="/">📷 วิเคราะห์</a>
+    <a href="/history">📜 ประวัติ</a>
+    <a href="/profile">👤 โปรไฟล์</a>
+    <a href="/export_csv">📥 Export CSV</a>
+    <a href="/logout">🚪 ออกจากระบบ</a>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+    <div class="card">
+      <h2>👤 {{ username }}</h2>
+
+      <div class="stat">📊 ใช้งานทั้งหมด: <b>{{ total }}</b> ครั้ง</div>
+      <div class="stat">🕒 ใช้งานล่าสุด:</div>
+      <b>{{ last_time }}</b>
+
+      <hr>
+      <a href="/export_csv">⬇️ ดาวน์โหลด CSV</a>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
+"""
+
