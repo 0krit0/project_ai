@@ -1,18 +1,18 @@
-import sqlite3
-from datetime import datetime
+﻿import sqlite3
 
 DB_NAME = "app.db"
+
 
 def get_db():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
 
+
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
 
-    # ตาราง users
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,7 +25,6 @@ def init_db():
     )
     """)
 
-    # ตาราง history
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,4 +1,4 @@
-import os
+﻿import os
 import csv
 from datetime import datetime
 
@@ -22,7 +22,7 @@ from flask import (
 
 # ================== APP SETUP ==================
 app = Flask(__name__)
-app.secret_key = "car_damage_ai_secret_123456"
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
 
 # ================== STATIC IMAGE ROUTE ==================
 @app.route("/feedback_images/<path:filename>")
@@ -156,7 +156,7 @@ def index():
             return render_template(
                 "index.html",
                 user=session["user"],
-                warning="❌ เกิดข้อผิดพลาดในการวิเคราะห์"
+                warning="เกิดข้อผิดพลาดในการวิเคราะห์"
             )
 
     return render_template("index.html", user=session["user"])
@@ -218,7 +218,7 @@ def export_csv():
     username = session["user"]["name"]
 
     def generate():
-        yield "\ufeffวันที่,ชื่อผู้ใช้,ตำแหน่ง,ผล,ความมั่นใจ,ความเชื่อมั่น,รูป\n"
+        yield "\ufeffวันที่,ชื่อผู้ใช้,ตำแหน่ง,ผล,ความมั่นใจ,ระดับความเชื่อมั่น,รูป\n"
         if os.path.isfile("experience_log.csv"):
             with open("experience_log.csv", newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)

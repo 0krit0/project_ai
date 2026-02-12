@@ -1,24 +1,23 @@
-import tensorflow as tf
+﻿import tensorflow as tf
 import numpy as np
 from PIL import Image
 
-# โหลดโมเดล
+# Load model
 model = tf.keras.models.load_model("damage_model.h5")
 
-# label ตามโฟลเดอร์ dataset
-labels = ["high", "low", "medium"]  
-# หมายเหตุ: TensorFlow เรียงตามชื่อโฟลเดอร์ A-Z
+# Labels from dataset folder order (A-Z)
+labels = ["high", "low", "medium"]
 
-# โหลดรูป
+# Load image
 img = Image.open("test.jpg").convert("RGB")
 img = img.resize((224, 224))
 img = np.array(img) / 255.0
 img = np.expand_dims(img, axis=0)
 
-# ทำนายผล
+# Predict
 pred = model.predict(img)
 pred_index = np.argmax(pred)
 confidence = np.max(pred)
 
-print("ผลการทำนาย:", labels[pred_index])
-print("ความมั่นใจ:", round(confidence * 100, 2), "%")
+print("Prediction:", labels[pred_index])
+print("Confidence:", round(confidence * 100, 2), "%")

@@ -4,62 +4,94 @@ Last updated: 2026-02-12
 Owner: project_ai team
 
 ## Current Goal
-- Build and maintain a web app that analyzes car damage severity from uploaded images.
+- Stabilize and polish CarDamage AI before active development.
+- Ensure Thai text is readable across UI/backend.
+- Upgrade UX/UI so the app feels production-like (consistent, clear, usable on mobile).
 
 ## Current Status
-- Core system is working end-to-end: upload image -> AI prediction -> show guidance -> log history/feedback.
-- Retrain pipeline exists and can be triggered automatically when conditions are met.
+- Core flow works: login -> analyze image -> show result -> feedback -> history/profile/export CSV.
+- Major text encoding cleanup completed (garbled Thai removed in core files).
+- UX/UI redesign completed across login/index/history/profile with one shared design system.
+- Changes are local and not committed yet.
 
-## Completed Since Last Session
-- Created persistent memory file for cross-session handoff.
-- Documented core project workflow and architecture summary.
+## Completed This Session (Detailed)
+1. Baseline code cleanup
+- Removed broken template wrappers and stray triple-quote markers.
+- Updated Flask secret key usage from hardcoded string to env-based fallback.
+
+2. Thai encoding cleanup (UTF-8 rewrite)
+- Rewrote garbled Thai text in backend and templates.
+- Rebuilt `rules.py` with clean Thai keys/values and aligned with UI part names.
+- Standardized CSV export header Thai text.
+
+3. UX/UI full redesign
+- Added shared stylesheet: `static/ui.css`.
+- Migrated all core pages to shared visual language:
+  - `templates/login.html`
+  - `templates/index.html`
+  - `templates/history.html`
+  - `templates/profile.html`
+- Improved information hierarchy on result view (decision-first with KPI blocks).
+- Added UX states:
+  - loading state on analyze button
+  - warning/error notice block on index
+  - empty state on history page
+- Kept responsive behavior for desktop/mobile.
+
+4. Validation
+- Python syntax check passed (`py_compile`) for key python files.
+- Emoji scan run: no emoji left in code/templates/config files.
+
+## Files Touched (Current Working Tree)
+- `app.py`
+- `rules.py`
+- `retrain.py`
+- `retrain_condition.py`
+- `train.py/train.py`
+- `test_model.py`
+- `db.py`
+- `templates/index.html`
+- `templates/login.html`
+- `templates/history.html`
+- `templates/profile.html`
+- `static/ui.css` (new)
+- `static/manifest.json`
+- `static/service_worker.js`
+
+## Important Design Decisions
+- Keep Flask + CSV flow unchanged for now (no DB migration yet) to avoid scope creep.
+- Prioritize UX consistency and readability first.
+- Preserve existing functional behavior while redesigning UI.
+
+## Known Risks / Gaps
+- UI is redesigned from code but still needs live browser smoke test.
+- `debug=True` still enabled in `app.py` (ok for dev, not for production).
+- Secret key fallback still dev-like if env var is not set.
+- `db.py` exists but app currently uses CSV logs.
+- Retrained model files are versioned, but serving model switch strategy is still undefined.
 
 ## Pending Tasks
-- [ ] Validate Thai text encoding in UI/messages (some text appears garbled).
-- [ ] Decide whether to migrate logs from CSV to SQLite (`db.py`) for consistency.
-- [ ] Add basic test checklist for prediction, history, feedback, and export flow.
+- [ ] Run live functional smoke test in browser (all pages + analyze + feedback + export).
+- [ ] Decide whether to keep CSV or migrate to SQLite (`db.py`).
+- [ ] Add `.gitignore` for `__pycache__/` and model/temp artifacts.
+- [ ] Clean pycache artifacts currently appearing in git status.
+- [ ] Commit and push current changes in logical chunks.
+
+## Suggested Commit Plan
+1. `chore: baseline template and security cleanup`
+- app secret key env fallback + template quote cleanup
+
+2. `fix: normalize thai utf-8 text across app and rules`
+- app/rules/templates/scripts text cleanup
+
+3. `feat: redesign UI with shared style system`
+- new `static/ui.css` + all page redesigns + loading/empty/error states
 
 ## Next Immediate Step
-- Run a quick functional check of the full user flow on local server and fix any UI/text issues.
+- Review app visually in browser and capture any final spacing/text issues.
+- Then clean pycache + create `.gitignore` + commit/push.
 
-## Core Workflow (Project Principle)
-- User logs in (`/login`) and enters the main analysis page (`/`).
-- User selects a car part and uploads an image.
-- Backend preprocesses image to 224x224 and runs TensorFlow model (`damage_model.h5`).
-- Model predicts severity class: `low`, `medium`, or `high`.
-- App maps prediction + selected part to repair guidance via `RULES` in `rules.py`.
-- Result, confidence, trust level, and decision text are shown on UI.
-- Uploaded image and analysis record are saved (`feedback_images/*`, `experience_log.csv`).
-- User can send correctness feedback (`/feedback`) stored in `feedback_log.csv`.
-- Retrain condition checks feedback image volume/time (`retrain_condition.py`).
-- If threshold met, app triggers `retrain.py` to fine-tune and save a new model file.
-
-## Key Components
-- `app.py`: Flask routes, prediction flow, history/profile/export/feedback.
-- `rules.py`: Rule-based descriptions, risk, and repair advice by part + severity.
-- `train.py/train.py`: Initial training script (MobileNetV2 transfer learning).
-- `retrain.py`: Incremental retrain from `feedback_images`.
-- `retrain_condition.py`: Rules for when retrain should run.
-- `templates/index.html`: Main user UI for analyze + feedback.
-
-## Files Touched
-- `PROJECT_MEMORY.md`: initialized and filled with project operation summary.
-
-## Commands Used
-```bash
-Get-Content app.py -TotalCount 260
-Get-Content rules.py -TotalCount 260
-Get-Content train.py\\train.py -TotalCount 260
-Get-Content retrain.py -TotalCount 260
-Get-Content retrain_condition.py -TotalCount 220
-Set-Content PROJECT_MEMORY.md
-```
-
-## Risks / Blockers
-- Thai string encoding appears inconsistent in several files.
-- Retrained model is saved as a new file, but serving model auto-switch strategy is not defined.
-
-## Notes for Next Session
-- Start by reading this file.
-- Continue from "Next Immediate Step".
-- If asked to update memory, overwrite this file with latest concise status.
+## Quick Start for Next Session
+1. Read this file first.
+2. Run `git status --short` to verify uncommitted changes.
+3. Start from "Next Immediate Step".

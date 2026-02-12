@@ -1,4 +1,4 @@
-import os
+﻿import os
 import tensorflow as tf
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.models import load_model
@@ -18,7 +18,7 @@ CLASS_NAMES = ["low", "medium", "high"]
 VALID_EXT = (".jpg", ".jpeg", ".png")
 
 # ===============================
-# นับจำนวนรูป feedback ที่ถูกต้อง
+# Count feedback images
 # ===============================
 def count_feedback_images():
     total = 0
@@ -32,29 +32,29 @@ def count_feedback_images():
     return total
 
 total_images = count_feedback_images()
-print(f"📸 จำนวนรูป feedback ทั้งหมด: {total_images}")
+print(f"Feedback images: {total_images}")
 
 if total_images < MIN_IMAGES:
-    print("❌ ข้อมูลยังไม่เพียงพอสำหรับการ retrain")
-    print(f"ต้องการอย่างน้อย {MIN_IMAGES} รูป")
-    exit()
+    print("Not enough data for retraining")
+    print(f"Need at least {MIN_IMAGES} images")
+    raise SystemExit(0)
 
 # ===============================
-# โหลดโมเดลเดิม
+# Load base model
 # ===============================
-print("🔄 โหลดโมเดลเดิม...")
+print("Loading base model...")
 model = load_model(BASE_MODEL_PATH)
 
 # ===============================
-# Freeze feature extractor
+# Freeze feature extractor layers
 # ===============================
 for layer in model.layers[:-3]:
     layer.trainable = False
 
-print("🔒 Freeze layers สำเร็จ (train เฉพาะ layer บน)")
+print("Frozen base layers. Training top layers only.")
 
 # ===============================
-# เตรียมข้อมูลจาก feedback_images
+# Prepare feedback dataset
 # ===============================
 datagen = ImageDataGenerator(
     rescale=1./255,
@@ -81,7 +81,7 @@ val_data = datagen.flow_from_directory(
 )
 
 # ===============================
-# Compile โมเดล (incremental learning)
+# Compile model
 # ===============================
 model.compile(
     optimizer=Adam(learning_rate=1e-4),
@@ -90,9 +90,9 @@ model.compile(
 )
 
 # ===============================
-# Re-train
+# Retrain model
 # ===============================
-print("🚀 เริ่ม Re-train โมเดลจาก feedback...")
+print("Starting model retraining...")
 model.fit(
     train_data,
     validation_data=val_data,
@@ -101,13 +101,12 @@ model.fit(
 )
 
 # ===============================
-# บันทึกโมเดลเวอร์ชันใหม่
+# Save retrained model
 # ===============================
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 new_model_name = f"damage_model_retrained_{timestamp}.h5"
 model.save(new_model_name)
 
-print("✅ Re-train สำเร็จ")
-print(f"📦 บันทึกโมเดลใหม่เป็น {new_model_name}")
-print(f"🕒 เวลา: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
+print("Retraining complete")
+print(f"Saved model: {new_model_name}")
+print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

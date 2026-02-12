@@ -1,4 +1,4 @@
-import tensorflow as tf
+﻿import tensorflow as tf
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.layers import Dense, GlobalAveragePooling2D
@@ -45,7 +45,7 @@ base_model = MobileNetV2(
     input_shape=(IMG_SIZE, IMG_SIZE, 3)
 )
 
-base_model.trainable = False  # ไม่ให้แก้สมองเดิม
+base_model.trainable = False
 
 x = base_model.output
 x = GlobalAveragePooling2D()(x)
@@ -74,6 +74,4 @@ history = model.fit(
 # -----------------------
 model.save("damage_model.h5")
 
-print("🎉 เทรน AI เสร็จแล้ว และบันทึกเป็น damage_model.h5")
-
-
+print("Training complete and saved to damage_model.h5")

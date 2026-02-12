@@ -1,4 +1,4 @@
-// CarDamage AI - Service Worker (Basic PWA)
+﻿// CarDamage AI - Service Worker (Basic PWA)
 
 self.addEventListener('install', event => {
   console.log('[Service Worker] Installed');
@@ -10,7 +10,7 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  // ใช้ network-first (เหมาะกับเว็บที่ต้องอัปโหลดรูป)
+  // network-first strategy
   event.respondWith(
     fetch(event.request).catch(() => {
       return new Response('Offline', {
