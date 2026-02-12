@@ -264,11 +264,13 @@ def check_analyze_rate_limit(user):
 
 def render_index(user, **kwargs):
     quick_stats, recent_records = get_dashboard_data(user["id"])
+    selected_part = kwargs.get("selected_part") or next(iter(RULES.keys()))
     payload = {
         "user": user,
         "is_admin": is_admin_user(user),
         "quick_stats": quick_stats,
         "recent_records": recent_records,
+        "selected_part": selected_part,
     }
     payload.update(kwargs)
     return render_template("index.html", **payload)
@@ -328,19 +330,27 @@ def index():
         file = request.files.get("file")
 
         if not part or not file:
-            return render_index(user, warning="กรุณาเลือกตำแหน่งและรูปภาพก่อนวิเคราะห์")
+            return render_index(
+                user,
+                warning="กรุณาเลือกตำแหน่งและรูปภาพก่อนวิเคราะห์",
+                selected_part=part,
+            )
         if part not in RULES:
-            return render_index(user, warning="ตำแหน่งความเสียหายไม่ถูกต้อง")
+            return render_index(
+                user,
+                warning="ตำแหน่งความเสียหายไม่ถูกต้อง",
+                selected_part=part,
+            )
 
         upload_error = validate_upload(file)
         if upload_error:
-            return render_index(user, warning=upload_error)
+            return render_index(user, warning=upload_error, selected_part=part)
 
         try:
             img_pil = Image.open(file).convert("RGB")
             quality_error, quality_notes = assess_image_quality(img_pil)
             if quality_error:
-                return render_index(user, warning=quality_error)
+                return render_index(user, warning=quality_error, selected_part=part)
 
             resized = img_pil.resize((224, 224))
             img_np = np.array(resized, dtype=np.float32) / 255.0
@@ -369,14 +379,14 @@ def index():
             os.makedirs(save_dir, exist_ok=True)
 
             filename = datetime.now().strftime("%Y%m%d_%H%M%S") + ".jpg"
-            image_path = os.path.join(save_dir, filename)
+            image_path = os.path.join(save_dir, filename).replace("\\", "/")
             img_pil.save(image_path, format="JPEG")
 
             heatmap_path = None
             heatmap_img = generate_heatmap_overlay(img_batch, idx)
             if heatmap_img is not None:
                 heatmap_filename = filename.replace(".jpg", "_heatmap.jpg")
-                heatmap_path = os.path.join(save_dir, heatmap_filename)
+                heatmap_path = os.path.join(save_dir, heatmap_filename).replace("\\", "/")
                 heatmap_img.save(heatmap_path, format="JPEG")
 
             detail = RULES.get(part, {}).get(
@@ -419,10 +429,18 @@ def index():
             )
 
         except UnidentifiedImageError:
-            return render_index(user, warning="ไฟล์รูปไม่ถูกต้องหรือระบบไม่รองรับไฟล์นี้")
+            return render_index(
+                user,
+                warning="ไฟล์รูปไม่ถูกต้องหรือระบบไม่รองรับไฟล์นี้",
+                selected_part=part,
+            )
         except Exception as err:
             app.logger.exception("analyze error: %s", err)
-            return render_index(user, warning=f"เกิดข้อผิดพลาดในการวิเคราะห์: {err}")
+            return render_index(
+                user,
+                warning=f"เกิดข้อผิดพลาดในการวิเคราะห์: {err}",
+                selected_part=part,
+            )
 
     return render_index(user)
 

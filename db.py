@@ -7,6 +7,12 @@ import tempfile
 DB_NAME = "app.db"
 
 
+def normalize_image_path(path):
+    if not path:
+        return path
+    return str(path).replace("\\", "/")
+
+
 def get_db():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
@@ -108,7 +114,7 @@ def add_history(user_id, part, result, confidence, trust, image_path):
         INSERT INTO history (user_id, part, result, confidence, trust, image_path, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (user_id, part, result, confidence, trust, image_path, now),
+        (user_id, part, result, confidence, trust, normalize_image_path(image_path), now),
     )
     conn.commit()
     conn.close()
@@ -123,7 +129,15 @@ def add_feedback(user_id, result, confidence, is_correct, comment, image_path):
         INSERT INTO feedback (user_id, result, confidence, is_correct, comment, image_path, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (user_id, result, confidence, is_correct, comment, image_path, now),
+        (
+            user_id,
+            result,
+            confidence,
+            is_correct,
+            comment,
+            normalize_image_path(image_path),
+            now,
+        ),
     )
     conn.commit()
     conn.close()
@@ -160,6 +174,8 @@ def get_user_history(
         params.append(int(limit))
     cur.execute(query, tuple(params))
     rows = [dict(r) for r in cur.fetchall()]
+    for row in rows:
+        row["image_path"] = normalize_image_path(row.get("image_path"))
     conn.close()
     return rows
 
@@ -238,6 +254,8 @@ def get_dashboard_data(user_id):
         (user_id,),
     )
     recent = [dict(r) for r in cur.fetchall()]
+    for row in recent:
+        row["image_path"] = normalize_image_path(row.get("image_path"))
     conn.close()
 
     quick_stats = {
@@ -316,6 +334,8 @@ def get_recent_feedback(limit=20):
         (int(limit),),
     )
     rows = [dict(r) for r in cur.fetchall()]
+    for row in rows:
+        row["image_path"] = normalize_image_path(row.get("image_path"))
     conn.close()
     return rows
 

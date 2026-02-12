@@ -69,7 +69,7 @@ class IntegrationFlowTests(unittest.TestCase):
             )
             self.assertEqual(analyze_resp.status_code, 200)
             text = analyze_resp.data.decode("utf-8", errors="replace")
-            self.assertIn("Confidence Policy", text)
+            self.assertIn("นโยบายการตีความความมั่นใจ", text)
 
             history_resp = self.client.get("/history")
             profile_resp = self.client.get("/profile")

@@ -46,13 +46,13 @@
           <form method="post" enctype="multipart/form-data" id="analyzeForm">
             <label for="part">ตำแหน่งความเสียหาย</label>
             <select id="part" name="part" required>
-              <option value="กันชนหน้า">กันชนหน้า</option>
-              <option value="กันชนหลัง">กันชนหลัง</option>
-              <option value="ประตู">ประตู</option>
-              <option value="ฝากระโปรงหน้า">ฝากระโปรงหน้า</option>
-              <option value="แก้มข้างรถ">แก้มข้างรถ</option>
-              <option value="ไฟหน้า">ไฟหน้า</option>
-              <option value="กระจกรถ">กระจกรถ</option>
+              <option value="กันชนหน้า" {% if selected_part == "กันชนหน้า" %}selected{% endif %}>กันชนหน้า</option>
+              <option value="กันชนหลัง" {% if selected_part == "กันชนหลัง" %}selected{% endif %}>กันชนหลัง</option>
+              <option value="ประตู" {% if selected_part == "ประตู" %}selected{% endif %}>ประตู</option>
+              <option value="ฝากระโปรงหน้า" {% if selected_part == "ฝากระโปรงหน้า" %}selected{% endif %}>ฝากระโปรงหน้า</option>
+              <option value="แก้มข้างรถ" {% if selected_part == "แก้มข้างรถ" %}selected{% endif %}>แก้มข้างรถ</option>
+              <option value="ไฟหน้า" {% if selected_part == "ไฟหน้า" %}selected{% endif %}>ไฟหน้า</option>
+              <option value="กระจกรถ" {% if selected_part == "กระจกรถ" %}selected{% endif %}>กระจกรถ</option>
             </select>
 
             <label for="file">รูปความเสียหาย</label>
@@ -92,14 +92,14 @@
                 <span class="mono">{{ confidence }}%</span>
               </div>
               <div class="confidence-bar">
-                <div class="confidence-fill {% if confidence >= 70 %}high{% elif confidence >= 40 %}medium{% endif %}" style="width: {{ confidence }}%"></div>
+                <div class="confidence-fill" data-confidence="{{ confidence }}"></div>
               </div>
               <p class="helper" style="margin-bottom:0">ระดับความเชื่อมั่น: <b>{{ trust }}</b></p>
             </section>
 
             {% if policy %}
             <section class="policy-box {{ policy.flag }}">
-              <div class="label">Confidence Policy</div>
+              <div class="label">นโยบายการตีความความมั่นใจ</div>
               <div class="policy-title">{{ policy.tier }}</div>
               <p class="helper">{{ policy.advice }}</p>
             </section>
@@ -133,12 +133,12 @@
 
             {% if evidence_items %}
             <section class="evidence-box">
-              <div class="label">Evidence Panel (Top-3)</div>
+              <div class="label">หลักฐานประกอบการตัดสินใจ (Top-3)</div>
               <ul class="evidence-list">
                 {% for item in evidence_items %}
                 <li>
                   <span class="evidence-label">{{ item.label }}</span>
-                  <div class="evidence-meter"><span style="width: {{ item.score }}%"></span></div>
+                  <div class="evidence-meter"><span data-score="{{ item.score }}"></span></div>
                   <span class="evidence-score">{{ item.score }}%</span>
                 </li>
                 {% endfor %}
@@ -154,7 +154,7 @@
             {% endif %}
 
             <section class="snapshot-box">
-              <div class="label">Analysis Snapshot</div>
+              <div class="label">สรุปผลแบบย่อ</div>
               <div id="analysisSnapshot" class="snapshot-text">{{ selected_part }} | {{ result }} | {{ confidence }}% | {{ trust }}</div>
               <button id="copySnapshotBtn" class="btn ghost" type="button">คัดลอกสรุป</button>
             </section>
@@ -186,9 +186,12 @@
         </div>
 
         <aside class="right-rail">
-          <article id="previewCard" class="card rail-card rail-sticky {% if not image_path %}hidden-rail-card{% endif %}">
+          <article id="previewCard" class="card rail-card rail-sticky">
             <h3>ตัวอย่างรูปที่กำลังใช้งาน</h3>
             <img id="previewImage" class="preview-image {% if not image_path %}is-empty{% endif %}" {% if image_path %}src="/{{ image_path }}"{% endif %} alt="preview">
+            {% if not image_path %}
+            <p id="previewHint" class="empty-preview">ยังไม่ได้เลือกรูป</p>
+            {% endif %}
           </article>
 
           <article class="card rail-card">
@@ -238,8 +241,8 @@
   const analyzeForm = document.getElementById('analyzeForm');
   const analyzeBtn = document.getElementById('analyzeBtn');
   const fileInput = document.getElementById('file');
-  const previewCard = document.getElementById('previewCard');
   const previewImage = document.getElementById('previewImage');
+  const previewHint = document.getElementById('previewHint');
   const copySnapshotBtn = document.getElementById('copySnapshotBtn');
   const analysisSnapshot = document.getElementById('analysisSnapshot');
 
@@ -256,9 +259,9 @@
       if (!file) return;
       const reader = new FileReader();
       reader.onload = function (event) {
-        if (previewCard) previewCard.classList.remove('hidden-rail-card');
         previewImage.src = event.target.result;
         previewImage.classList.remove('is-empty');
+        if (previewHint) previewHint.style.display = 'none';
       };
       reader.readAsDataURL(file);
     });
@@ -277,6 +280,23 @@
       }
     });
   }
+
+  document.querySelectorAll('.evidence-meter > span[data-score]').forEach(function (el) {
+    const score = Number(el.getAttribute('data-score') || 0);
+    const clamped = Math.max(0, Math.min(100, score));
+    el.style.width = clamped + '%';
+  });
+
+  document.querySelectorAll('.confidence-fill[data-confidence]').forEach(function (el) {
+    const confidence = Number(el.getAttribute('data-confidence') || 0);
+    const clamped = Math.max(0, Math.min(100, confidence));
+    el.style.width = clamped + '%';
+    if (clamped >= 70) {
+      el.classList.add('high');
+    } else if (clamped >= 40) {
+      el.classList.add('medium');
+    }
+  });
 })();
 </script>
 </body>
