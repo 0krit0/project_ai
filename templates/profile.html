@@ -1,88 +1,52 @@
-PROFILE_HTML = """
-<!doctype html>
+﻿<!doctype html>
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<title>โปรไฟล์ผู้ใช้</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<style>
-body {
-  margin: 0;
-  font-family: "Segoe UI", sans-serif;
-  background: #f5f7fa;
-}
-.wrapper {
-  display: flex;
-  min-height: 100vh;
-}
-.sidebar {
-  width: 220px;
-  background: #0d6efd;
-  color: white;
-  padding: 20px;
-}
-.sidebar a {
-  display: block;
-  color: white;
-  text-decoration: none;
-  margin: 12px 0;
-}
-.content {
-  flex: 1;
-  padding: 30px;
-}
-.card {
-  max-width: 420px;
-  margin: auto;
-  background: white;
-  padding: 25px;
-  border-radius: 14px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-  text-align: center;
-}
-.stat {
-  font-size: 18px;
-  margin: 12px 0;
-}
-@media (max-width: 768px) {
-  .sidebar { display: none; }
-}
-</style>
+<title>โปรไฟล์ | CarDamage AI</title>
+<link rel="stylesheet" href="/static/ui.css">
 </head>
-
 <body>
+<div class="page">
+  <aside class="sidebar">
+    <div class="brand">CarDamage AI</div>
+    <div class="tagline">บัญชีผู้ใช้งาน</div>
+    <nav class="nav">
+      <a href="/">วิเคราะห์</a>
+      <a href="/history">ประวัติ</a>
+      <a href="/profile">โปรไฟล์</a>
+      <a href="/export_csv">ส่งออก CSV</a>
+      <a href="/logout">ออกจากระบบ</a>
+    </nav>
+  </aside>
 
-<div class="wrapper">
+  <main class="main">
+    <header class="header">
+      <h1>โปรไฟล์ผู้ใช้</h1>
+      <p>ภาพรวมการใช้งานและสถานะล่าสุดของบัญชีนี้</p>
+    </header>
 
-  <!-- Sidebar -->
-  <div class="sidebar">
-    <h2>🚗 CarAI</h2>
-    <hr>
-    <a href="/">📷 วิเคราะห์</a>
-    <a href="/history">📜 ประวัติ</a>
-    <a href="/profile">👤 โปรไฟล์</a>
-    <a href="/export_csv">📥 Export CSV</a>
-    <a href="/logout">🚪 ออกจากระบบ</a>
-  </div>
+    <section class="card" style="max-width:720px">
+      <div class="kpis">
+        <div class="kpi">
+          <div class="label">ชื่อผู้ใช้งาน</div>
+          <div class="value">{{ username }}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">จำนวนครั้งที่วิเคราะห์</div>
+          <div class="value">{{ total }} ครั้ง</div>
+        </div>
+        <div class="kpi">
+          <div class="label">ใช้งานล่าสุด</div>
+          <div class="value">{{ last_time }}</div>
+        </div>
+      </div>
 
-  <!-- Content -->
-  <div class="content">
-    <div class="card">
-      <h2>👤 {{ username }}</h2>
-
-      <div class="stat">📊 ใช้งานทั้งหมด: <b>{{ total }}</b> ครั้ง</div>
-      <div class="stat">🕒 ใช้งานล่าสุด:</div>
-      <b>{{ last_time }}</b>
-
-      <hr>
-      <a href="/export_csv">⬇️ ดาวน์โหลด CSV</a>
-    </div>
-  </div>
-
+      <div style="margin-top:16px">
+        <a href="/export_csv"><button class="btn" type="button">ดาวน์โหลดประวัติเป็น CSV</button></a>
+      </div>
+    </section>
+  </main>
 </div>
-
 </body>
 </html>
-"""
-

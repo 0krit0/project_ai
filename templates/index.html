@@ -1,271 +1,132 @@
-
-
-
-<!doctype html>
+﻿<!doctype html>
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<title>CarDamage AI</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<style>
-/* ===== THEME ===== */
-:root{
-  --bg-main:#0b0f19;
-  --bg-card:rgba(20,25,45,0.9);
-  --neon:#22d3ee;
-  --primary:#3b82f6;
-  --text:#e5e7eb;
-  --muted:#9ca3af;
-  --danger:#ef4444;
-  --warning:#facc15;
-  --success:#22c55e;
-}
-
-*{box-sizing:border-box}
-
-body{
-  margin:0;
-  font-family:"Segoe UI",sans-serif;
-  background:radial-gradient(circle at top,#0f172a,#020617);
-  color:var(--text);
-}
-
-/* ===== LAYOUT ===== */
-.app{
-  display:flex;
-  min-height:100vh;
-}
-
-/* ===== SIDEBAR ===== */
-.sidebar{
-  width:240px;
-  background:linear-gradient(180deg,#020617,#020617);
-  border-right:1px solid rgba(34,211,238,0.25);
-  padding:22px;
-}
-
-.sidebar h2{
-  margin-top:0;
-  color:var(--neon);
-  text-shadow:0 0 10px rgba(34,211,238,0.7);
-}
-
-.sidebar p{
-  color:var(--muted);
-  margin-bottom:20px;
-}
-
-.sidebar a{
-  display:block;
-  padding:10px 14px;
-  margin:8px 0;
-  border-radius:10px;
-  color:var(--text);
-  text-decoration:none;
-  transition:0.15s;
-}
-
-.sidebar a:hover{
-  background:rgba(34,211,238,0.15);
-  box-shadow:0 0 12px rgba(34,211,238,0.3);
-}
-
-/* ===== MAIN ===== */
-.main{
-  flex:1;
-  padding:28px;
-}
-
-/* ===== CARD ===== */
-.card{
-  background:var(--bg-card);
-  border-radius:16px;
-  padding:22px;
-  margin-bottom:22px;
-  box-shadow:0 0 30px rgba(0,0,0,0.5);
-  border:1px solid rgba(34,211,238,0.15);
-}
-
-.card h3{
-  margin-top:0;
-  color:var(--neon);
-}
-
-/* ===== FORM ===== */
-label{color:var(--muted)}
-select,input[type=file],textarea{
-  width:100%;
-  background:#020617;
-  color:var(--text);
-  border:1px solid rgba(34,211,238,0.3);
-  border-radius:10px;
-  padding:10px;
-  margin:8px 0 14px;
-}
-
-textarea{resize:none}
-
-/* ===== GAME BUTTON ===== */
-.btn-game{
-  background:linear-gradient(135deg,var(--neon),var(--primary));
-  color:#020617;
-  font-weight:bold;
-  border:none;
-  padding:12px 22px;
-  border-radius:14px;
-  cursor:pointer;
-  box-shadow:0 0 18px rgba(34,211,238,0.6);
-  transition:all .15s;
-}
-
-.btn-game:hover{
-  transform:translateY(-2px);
-  box-shadow:0 0 28px rgba(34,211,238,0.9);
-}
-
-.btn-game:active{
-  transform:translateY(2px) scale(.97);
-  box-shadow:0 0 8px rgba(34,211,238,0.4);
-}
-
-/* ===== BADGE ===== */
-.badge{
-  padding:6px 14px;
-  border-radius:999px;
-  font-weight:bold;
-}
-
-.low{background:var(--success)}
-.medium{background:var(--warning);color:#000}
-.high{background:var(--danger)}
-
-/* ===== MOBILE ===== */
-@media(max-width:768px){
-  .app{flex-direction:column}
-  .sidebar{width:100%}
-}
-</style>
+<title>CarDamage AI</title>
+<link rel="stylesheet" href="/static/ui.css">
 </head>
-
 <body>
-
 {% if not session.get("user") %}
-<div style="text-align:center;padding:60px">
-  <h2 style="color:var(--neon)">CarDamage AI</h2>
-  <p class="muted">ระบบวิเคราะห์ความเสียหายรถยนต์ด้วย AI</p>
-  <a href="/login"><button class="btn-game">🔐 เข้าสู่ระบบ</button></a>
-</div>
-
+  <main class="auth-wrap">
+    <section class="auth-card">
+      <h1 class="auth-title">CarDamage AI</h1>
+      <p class="auth-sub">ระบบประเมินความเสียหายรถยนต์ด้วย AI</p>
+      <a href="/login"><button class="btn" type="button" style="width:100%">เข้าสู่ระบบ</button></a>
+    </section>
+  </main>
 {% else %}
-<div class="app">
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">CarDamage AI</div>
+      <div class="tagline">เครื่องมือประเมินความเสียหายเบื้องต้น</div>
+      <div class="tagline">ผู้ใช้: {{ session.user.name }}</div>
+      <nav class="nav">
+        <a href="/">วิเคราะห์</a>
+        <a href="/history">ประวัติ</a>
+        <a href="/profile">โปรไฟล์</a>
+        <a href="/export_csv">ส่งออก CSV</a>
+        <a href="/logout">ออกจากระบบ</a>
+      </nav>
+    </aside>
 
-  <!-- SIDEBAR -->
-  <div class="sidebar">
-    <h2>CarDamage AI</h2>
-    <p>👋 {{ session.user.name }}</p>
-    <a href="/">🔍 วิเคราะห์รถ</a>
-    <a href="/history">📜 ประวัติ</a>
-    <a href="/profile">👤 โปรไฟล์</a>
-    <a href="/logout">🚪 ออกจากระบบ</a>
+    <main class="main">
+      <header class="header">
+        <h1>วิเคราะห์ความเสียหายรถยนต์</h1>
+        <p>อัปโหลดภาพ 1 รูป เลือกตำแหน่งความเสียหาย และตรวจผลลัพธ์ AI พร้อมคำแนะนำซ่อมเบื้องต้น</p>
+      </header>
+
+      <section class="grid">
+        <article class="card">
+          <h3>เริ่มวิเคราะห์</h3>
+          <form method="post" enctype="multipart/form-data" id="analyzeForm">
+            <label for="part">ตำแหน่งความเสียหาย</label>
+            <select id="part" name="part" required>
+              <option value="กันชนหน้า">กันชนหน้า</option>
+              <option value="กันชนหลัง">กันชนหลัง</option>
+              <option value="ประตู">ประตู</option>
+              <option value="ฝากระโปรงหน้า">ฝากระโปรงหน้า</option>
+              <option value="แก้มข้างรถ">แก้มข้างรถ</option>
+              <option value="ไฟหน้า">ไฟหน้า</option>
+              <option value="กระจกรถ">กระจกรถ</option>
+            </select>
+
+            <label for="file">รูปความเสียหาย</label>
+            <input id="file" type="file" name="file" accept="image/*" required>
+            <p class="helper">แนะนำภาพที่เห็นจุดเสียหายชัดเจน ไม่เบลอ และไม่มืดเกินไป</p>
+
+            <button class="btn" type="submit" id="analyzeBtn">วิเคราะห์ทันที</button>
+          </form>
+        </article>
+
+        {% if warning %}
+        <article class="card">
+          <div class="notice error">{{ warning }}</div>
+        </article>
+        {% endif %}
+
+        {% if result %}
+        <article class="card">
+          <h3>ผลการประเมิน</h3>
+          <div class="kpis">
+            <div class="kpi">
+              <div class="label">ระดับความเสียหาย</div>
+              <div class="value"><span class="badge {{ result }}">{{ result }}</span></div>
+            </div>
+            <div class="kpi">
+              <div class="label">ความมั่นใจของโมเดล</div>
+              <div class="value">{{ confidence }}%</div>
+            </div>
+            <div class="kpi">
+              <div class="label">ระดับความเชื่อมั่น</div>
+              <div class="value">{{ trust }}</div>
+            </div>
+          </div>
+
+          <p style="margin-top:14px"><b>คำแนะนำหลัก:</b> {{ decision }}</p>
+          <ul>
+            <li>{{ detail.description }}</li>
+            <li>{{ detail.repair }}</li>
+          </ul>
+
+          <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+
+          <h3>Feedback ผลลัพธ์</h3>
+          <form method="post" action="/feedback" id="feedbackForm">
+            <input type="hidden" name="image_path" value="{{ image_path }}">
+            <input type="hidden" name="result" value="{{ result }}">
+            <input type="hidden" name="confidence" value="{{ confidence }}">
+
+            <label>
+              <input type="radio" name="is_correct" value="yes" required> ผลลัพธ์ถูกต้อง
+            </label>
+            <label>
+              <input type="radio" name="is_correct" value="no"> ผลลัพธ์ยังไม่ถูกต้อง
+            </label>
+
+            <label for="comment">ข้อเสนอแนะเพิ่มเติม</label>
+            <textarea id="comment" name="comment" placeholder="ระบุสิ่งที่ควรปรับปรุง เช่น ระดับความเสียหายควรเป็น medium"></textarea>
+            <button class="btn secondary" type="submit">ส่ง Feedback</button>
+          </form>
+        </article>
+        {% endif %}
+      </section>
+    </main>
   </div>
-
-  <!-- MAIN -->
-  <div class="main">
-
-    <!-- ANALYZE -->
-    <div class="card">
-      <h3>📷 วิเคราะห์ความเสียหาย</h3>
-      <form method="post" enctype="multipart/form-data">
-        <label>ตำแหน่งความเสียหาย</label>
-        <select name="part">
-          <option>กันชนหน้า</option>
-          <option>กันชนหลัง</option>
-          <option>ประตู</option>
-          <option>ฝากระโปรงหน้า</option>
-          <option>แก้มข้างรถ</option>
-          <option>ไฟหน้า</option>
-          <option>กระจกรถ</option>
-        </select>
-
-        <label>อัปโหลดรูป</label>
-        <input type="file" name="file" required>
-
-        <button class="btn-game" type="submit">⚡ วิเคราะห์</button>
-      </form>
-    </div>
-
-    {% if result %}
-    <!-- RESULT -->
-    <div class="card">
-      <h3>📊 ผลการวิเคราะห์</h3>
-
-      <p><b>ระดับความเสียหาย:</b>
-        <span class="badge {{ result }}">{{ result }}</span>
-      </p>
-
-      <p><b>ความมั่นใจ:</b> {{ confidence }}%</p>
-      <p><b>คำแนะนำ:</b> {{ decision }}</p>
-
-      <ul>
-        <li>{{ detail.description }}</li>
-        <li>{{ detail.repair }}</li>
-      </ul>
-
-      <hr style="border-color:rgba(255,255,255,0.1)">
-
-      <!-- FEEDBACK -->
-      <h3>🗣️ Feedback</h3>
-      <form method="post" action="/feedback">
-        <input type="hidden" name="image_path" value="{{ image_path }}">
-        <input type="hidden" name="result" value="{{ result }}">
-        <input type="hidden" name="confidence" value="{{ confidence }}">
-
-        <label>
-          <input type="radio" name="is_correct" value="yes" required> ถูกต้อง
-        </label>
-        <label>
-          <input type="radio" name="is_correct" value="no"> ไม่ถูกต้อง
-        </label>
-
-        <textarea name="comment" placeholder="ข้อเสนอแนะเพิ่มเติม"></textarea>
-        <button class="btn-game" type="submit">🚀 ส่ง Feedback</button>
-      </form>
-    </div>
-    {% endif %}
-
-  </div>
-</div>
 {% endif %}
 
 <script>
-const sound = document.getElementById("btnSound");
+(function () {
+  const analyzeForm = document.getElementById('analyzeForm');
+  const analyzeBtn = document.getElementById('analyzeBtn');
 
-document.querySelectorAll(".btn-game").forEach(btn=>{
-  btn.addEventListener("click", ()=>{
-    if(sound){
-      sound.currentTime = 0;
-      sound.volume = 0.4;
-      sound.play();
-    }
-
-    // เอฟเฟกต์สั่นเบา ๆ
-    btn.animate([
-      { transform: "scale(1)" },
-      { transform: "scale(0.96)" },
-      { transform: "scale(1)" }
-    ], {
-      duration: 120,
-      easing: "ease-out"
+  if (analyzeForm && analyzeBtn) {
+    analyzeForm.addEventListener('submit', function () {
+      analyzeBtn.disabled = true;
+      analyzeBtn.textContent = 'กำลังวิเคราะห์...';
     });
-  });
-});
+  }
+})();
 </script>
-
 </body>
-<audio id="btnSound">
-  <source src="https://assets.mixkit.co/sfx/preview/mixkit-game-click-1114.mp3" type="audio/mpeg">
-</audio>
-
 </html>
-"""
