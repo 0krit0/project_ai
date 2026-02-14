@@ -11,9 +11,18 @@
   <aside class="sidebar">
     <div class="brand">CarDamage AI</div>
     <div class="tagline">Admin Console</div>
-    <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
+    <div class="sidebar-profile">
+      {% if session.get("user") and session.user.avatar_path %}
+      <img class="sidebar-avatar" src="/{{ session.user.avatar_path }}" alt="profile avatar">
+      {% else %}
+      <div class="sidebar-avatar sidebar-avatar-fallback">{{ username[0]|upper }}</div>
+      {% endif %}
+      <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
+    </div>
     <nav class="nav">
       <a href="/">วิเคราะห์</a>
+      <a href="/cases">เคสงาน</a>
+      <a href="/report/latest">รายงานล่าสุด</a>
       <a href="/history">ประวัติ</a>
       <a href="/profile">โปรไฟล์</a>
       <a href="/admin">แอดมิน</a>
@@ -54,6 +63,18 @@
           <div class="label">ความมั่นใจเฉลี่ย</div>
           <div class="value">{{ metrics.avg_conf }}%</div>
         </div>
+        <div class="kpi">
+          <div class="label">Audit Events</div>
+          <div class="value">{{ metrics.audit_events }}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Unread Notifications</div>
+          <div class="value">{{ metrics.unread_notifications }}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Queued/Running Jobs</div>
+          <div class="value">{{ metrics.queued_jobs }}/{{ metrics.running_jobs }}</div>
+        </div>
       </div>
 
       <h4 style="margin-top:14px">Distribution</h4>
@@ -79,6 +100,8 @@
       <form method="post" action="/admin/restore" enctype="multipart/form-data">
         <label for="db_file">กู้คืนฐานข้อมูลจากไฟล์ .db</label>
         <input id="db_file" type="file" name="db_file" accept=".db" required>
+        <label for="confirm_restore">พิมพ์ YES_RESTORE เพื่อยืนยัน</label>
+        <input id="confirm_restore" type="text" name="confirm_restore" placeholder="YES_RESTORE" required>
         <div class="helper">คำเตือน: การกู้คืนจะทับข้อมูลปัจจุบันทั้งหมด</div>
         <button class="btn warm" type="submit" style="margin-top:10px">Restore Database</button>
       </form>
@@ -117,7 +140,40 @@
       <div class="notice empty">ยังไม่มี feedback</div>
       {% endif %}
     </section>
+
+    <section class="card">
+      <h3>Audit ล่าสุด</h3>
+      {% if audit_rows %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>เวลา</th>
+              <th>ผู้ใช้</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>IP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in audit_rows %}
+            <tr>
+              <td data-label="เวลา">{{ a.created_at }}</td>
+              <td data-label="ผู้ใช้">{{ a.username or '-' }}</td>
+              <td data-label="Action">{{ a.action }}</td>
+              <td data-label="Target">{{ a.target or '-' }}</td>
+              <td data-label="IP">{{ a.ip_address or '-' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="notice empty">ยังไม่มี audit log</div>
+      {% endif %}
+    </section>
   </main>
 </div>
 </body>
 </html>
+

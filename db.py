@@ -1,10 +1,15 @@
-import sqlite3
-from datetime import datetime
 import csv
+import json
 import os
+import sqlite3
 import tempfile
+from datetime import datetime
 
 DB_NAME = "app.db"
+
+
+def now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def normalize_image_path(path):
@@ -17,6 +22,12 @@ def get_db():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def table_columns(conn, table_name):
+    cur = conn.cursor()
+    cur.execute(f"PRAGMA table_info({table_name})")
+    return {row["name"] for row in cur.fetchall()}
 
 
 def init_db():
@@ -67,61 +78,355 @@ def init_db():
     )
 
     cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            username TEXT,
+            action TEXT NOT NULL,
+            target TEXT,
+            details TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS model_registry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version TEXT UNIQUE NOT NULL,
+            source TEXT,
+            notes TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            vehicle_info TEXT,
+            status TEXT NOT NULL DEFAULT 'open',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS case_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            image_path TEXT NOT NULL,
+            note TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(case_id) REFERENCES cases(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS analysis_jobs (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            part TEXT,
+            image_path TEXT,
+            result_json TEXT,
+            error_text TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+
+    # Online migrations for existing databases.
+    user_cols = table_columns(conn, "users")
+    if "password_hash" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+    if "role" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+    if "is_active" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+    if "avatar_path" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN avatar_path TEXT")
+
+    history_cols = table_columns(conn, "history")
+    if "model_version" not in history_cols:
+        cursor.execute(
+            "ALTER TABLE history ADD COLUMN model_version TEXT NOT NULL DEFAULT 'damage_model.h5'"
+        )
+    if "est_cost_min" not in history_cols:
+        cursor.execute("ALTER TABLE history ADD COLUMN est_cost_min INTEGER")
+    if "est_cost_max" not in history_cols:
+        cursor.execute("ALTER TABLE history ADD COLUMN est_cost_max INTEGER")
+
+    cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_history_user_created ON history(user_id, created_at)"
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_feedback_user_created ON feedback(user_id, created_at)"
     )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at)"
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cases_user_created ON cases(user_id, created_at)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read, created_at)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON analysis_jobs(user_id, status, created_at)"
+    )
+
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO model_registry (version, source, notes, is_active, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        ("damage_model.h5", "local", "default base model", 1, now_str()),
+    )
 
     conn.commit()
     conn.close()
 
 
+def serialize_details(details):
+    if details is None:
+        return None
+    if isinstance(details, str):
+        return details
+    try:
+        return json.dumps(details, ensure_ascii=False)
+    except Exception:
+        return str(details)
+
+
+def log_audit(
+    action,
+    user_id=None,
+    username=None,
+    target=None,
+    details=None,
+    ip_address=None,
+    user_agent=None,
+):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO audit_logs (
+            user_id, username, action, target, details, ip_address, user_agent, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            username,
+            action,
+            target,
+            serialize_details(details),
+            ip_address,
+            user_agent,
+            now_str(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_recent_audit_logs(limit=50):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT created_at, username, action, target, details, ip_address
+        FROM audit_logs
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (int(limit),),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
 def get_or_create_user(username):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = now_str()
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("SELECT id, username FROM users WHERE username = ?", (username,))
+    cur.execute(
+        "SELECT id, username, role, is_active, avatar_path FROM users WHERE username = ?",
+        (username,),
+    )
     row = cur.fetchone()
 
     if row is None:
         cur.execute(
-            "INSERT INTO users (username, created_at, last_login) VALUES (?, ?, ?)",
+            """
+            INSERT INTO users (username, created_at, last_login, role, is_active)
+            VALUES (?, ?, ?, 'user', 1)
+            """,
             (username, now, now),
         )
         user_id = cur.lastrowid
     else:
         user_id = row["id"]
-        cur.execute(
-            "UPDATE users SET last_login = ? WHERE id = ?",
-            (now, user_id),
-        )
+        cur.execute("UPDATE users SET last_login = ? WHERE id = ?", (now, user_id))
 
     conn.commit()
-    cur.execute("SELECT id, username FROM users WHERE id = ?", (user_id,))
+    cur.execute(
+        "SELECT id, username, role, is_active, avatar_path FROM users WHERE id = ?",
+        (user_id,),
+    )
     user = cur.fetchone()
     conn.close()
-    return {"id": user["id"], "name": user["username"]}
+    return {
+        "id": user["id"],
+        "name": user["username"],
+        "role": user["role"] or "user",
+        "is_active": int(user["is_active"]) == 1,
+        "avatar_path": normalize_image_path(user["avatar_path"]),
+    }
 
 
-def add_history(user_id, part, result, confidence, trust, image_path):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def get_user_auth(username):
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO history (user_id, part, result, confidence, trust, image_path, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        SELECT id, username, password_hash, role, is_active, avatar_path
+        FROM users
+        WHERE username = ?
         """,
-        (user_id, part, result, confidence, trust, normalize_image_path(image_path), now),
+        (username,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def create_user(username, password_hash, role="user", avatar_path=None):
+    now = now_str()
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO users (username, password_hash, role, is_active, avatar_path, created_at, last_login)
+            VALUES (?, ?, ?, 1, ?, ?, ?)
+            """,
+            (username, password_hash, role, normalize_image_path(avatar_path), now, now),
+        )
+        user_id = cur.lastrowid
+        conn.commit()
+        cur.execute(
+            "SELECT id, username, role, is_active, avatar_path FROM users WHERE id = ?",
+            (user_id,),
+        )
+        row = cur.fetchone()
+        return {
+            "id": row["id"],
+            "name": row["username"],
+            "role": row["role"] or "user",
+            "is_active": int(row["is_active"]) == 1,
+            "avatar_path": normalize_image_path(row["avatar_path"]),
+        }, None
+    except sqlite3.IntegrityError:
+        return None, "username_exists"
+    finally:
+        conn.close()
+
+
+def set_user_password(username, password_hash):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET password_hash = ? WHERE username = ?",
+        (password_hash, username),
+    )
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+def set_user_avatar(user_id, avatar_path):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET avatar_path = ? WHERE id = ?",
+        (normalize_image_path(avatar_path), user_id),
+    )
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+def add_history(
+    user_id,
+    part,
+    result,
+    confidence,
+    trust,
+    image_path,
+    model_version="damage_model.h5",
+    est_cost_min=None,
+    est_cost_max=None,
+):
+    now = now_str()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO history (
+            user_id, part, result, confidence, trust, image_path, model_version, est_cost_min, est_cost_max, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            part,
+            result,
+            confidence,
+            trust,
+            normalize_image_path(image_path),
+            model_version,
+            est_cost_min,
+            est_cost_max,
+            now,
+        ),
     )
     conn.commit()
     conn.close()
 
 
 def add_feedback(user_id, result, confidence, is_correct, comment, image_path):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
@@ -136,7 +441,7 @@ def add_feedback(user_id, result, confidence, is_correct, comment, image_path):
             is_correct,
             comment,
             normalize_image_path(image_path),
-            now,
+            now_str(),
         ),
     )
     conn.commit()
@@ -149,7 +454,16 @@ def get_user_history(
     conn = get_db()
     cur = conn.cursor()
     query = """
-        SELECT created_at AS datetime, part, result, confidence, trust, image_path
+        SELECT
+            created_at AS datetime,
+            part,
+            result,
+            confidence,
+            trust,
+            image_path,
+            model_version,
+            est_cost_min,
+            est_cost_max
         FROM history
         WHERE user_id = ?
     """
@@ -245,7 +559,16 @@ def get_dashboard_data(user_id):
 
     cur.execute(
         """
-        SELECT created_at AS datetime, part, result, confidence, trust, image_path
+        SELECT
+            created_at AS datetime,
+            part,
+            result,
+            confidence,
+            trust,
+            image_path,
+            model_version,
+            est_cost_min,
+            est_cost_max
         FROM history
         WHERE user_id = ?
         ORDER BY created_at DESC
@@ -303,6 +626,15 @@ def get_admin_metrics():
     )
     distribution = [dict(r) for r in cur.fetchall()]
 
+    cur.execute("SELECT COUNT(*) AS c FROM audit_logs")
+    audit_events = int(cur.fetchone()["c"])
+    cur.execute("SELECT COUNT(*) AS c FROM notifications WHERE is_read = 0")
+    unread_notifications = int(cur.fetchone()["c"])
+    cur.execute("SELECT COUNT(*) AS c FROM analysis_jobs WHERE status = 'queued'")
+    queued_jobs = int(cur.fetchone()["c"])
+    cur.execute("SELECT COUNT(*) AS c FROM analysis_jobs WHERE status = 'running'")
+    running_jobs = int(cur.fetchone()["c"])
+
     conn.close()
     return {
         "total_users": total_users,
@@ -310,6 +642,10 @@ def get_admin_metrics():
         "avg_conf": avg_conf,
         "last_24h": last_24h,
         "distribution": distribution,
+        "audit_events": audit_events,
+        "unread_notifications": unread_notifications,
+        "queued_jobs": queued_jobs,
+        "running_jobs": running_jobs,
     }
 
 
@@ -368,6 +704,219 @@ def restore_database_from_upload(file_storage):
     return None
 
 
+def create_case(user_id, title, vehicle_info=None):
+    now = now_str()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO cases (user_id, title, vehicle_info, status, created_at, updated_at)
+        VALUES (?, ?, ?, 'open', ?, ?)
+        """,
+        (user_id, title, vehicle_info, now, now),
+    )
+    case_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return case_id
+
+
+def list_user_cases(user_id, limit=50):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, title, vehicle_info, status, created_at, updated_at
+        FROM cases
+        WHERE user_id = ?
+        ORDER BY updated_at DESC
+        LIMIT ?
+        """,
+        (user_id, int(limit)),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def add_case_image(case_id, user_id, image_path, note=None):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO case_images (case_id, user_id, image_path, note, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (case_id, user_id, normalize_image_path(image_path), note, now_str()),
+    )
+    cur.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_str(), case_id))
+    conn.commit()
+    conn.close()
+
+
+def get_case_detail(case_id, user_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, title, vehicle_info, status, created_at, updated_at
+        FROM cases
+        WHERE id = ? AND user_id = ?
+        """,
+        (case_id, user_id),
+    )
+    case_row = cur.fetchone()
+    if not case_row:
+        conn.close()
+        return None
+
+    cur.execute(
+        """
+        SELECT id, image_path, note, created_at
+        FROM case_images
+        WHERE case_id = ? AND user_id = ?
+        ORDER BY created_at DESC
+        """,
+        (case_id, user_id),
+    )
+    images = [dict(r) for r in cur.fetchall()]
+    for row in images:
+        row["image_path"] = normalize_image_path(row.get("image_path"))
+    conn.close()
+
+    payload = dict(case_row)
+    payload["images"] = images
+    return payload
+
+
+def create_notification(user_id, title, body):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO notifications (user_id, title, body, is_read, created_at)
+        VALUES (?, ?, ?, 0, ?)
+        """,
+        (user_id, title, body, now_str()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_notifications(user_id, unread_only=False, limit=50):
+    conn = get_db()
+    cur = conn.cursor()
+    query = """
+        SELECT id, title, body, is_read, created_at
+        FROM notifications
+        WHERE user_id = ?
+    """
+    params = [user_id]
+    if unread_only:
+        query += " AND is_read = 0"
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(int(limit))
+    cur.execute(query, tuple(params))
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def mark_notification_read(notification_id, user_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?",
+        (notification_id, user_id),
+    )
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+def create_analysis_job(job_id, user_id, part):
+    now = now_str()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO analysis_jobs (
+            id, user_id, status, part, created_at, updated_at
+        ) VALUES (?, ?, 'queued', ?, ?, ?)
+        """,
+        (job_id, user_id, part, now, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_analysis_job(job_id, status=None, image_path=None, result_json=None, error_text=None):
+    conn = get_db()
+    cur = conn.cursor()
+    sets = ["updated_at = ?"]
+    params = [now_str()]
+    if status is not None:
+        sets.append("status = ?")
+        params.append(status)
+    if image_path is not None:
+        sets.append("image_path = ?")
+        params.append(normalize_image_path(image_path))
+    if result_json is not None:
+        sets.append("result_json = ?")
+        if isinstance(result_json, str):
+            params.append(result_json)
+        else:
+            params.append(json.dumps(result_json, ensure_ascii=False))
+    if error_text is not None:
+        sets.append("error_text = ?")
+        params.append(error_text)
+    params.append(job_id)
+    cur.execute(f"UPDATE analysis_jobs SET {', '.join(sets)} WHERE id = ?", tuple(params))
+    conn.commit()
+    conn.close()
+
+
+def get_analysis_job(job_id, user_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, status, part, image_path, result_json, error_text, created_at, updated_at
+        FROM analysis_jobs
+        WHERE id = ? AND user_id = ?
+        """,
+        (job_id, user_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    payload = dict(row)
+    if payload.get("result_json"):
+        try:
+            payload["result"] = json.loads(payload["result_json"])
+        except Exception:
+            payload["result"] = payload["result_json"]
+    payload["image_path"] = normalize_image_path(payload.get("image_path"))
+    return payload
+
+
+def get_analysis_job_stats():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT status, COUNT(*) AS cnt
+        FROM analysis_jobs
+        GROUP BY status
+        """
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
 def migrate_from_csv():
     conn = get_db()
     cur = conn.cursor()
@@ -388,12 +937,15 @@ def migrate_from_csv():
     def get_user_id(username):
         if username in user_cache:
             return user_cache[username]
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = now_str()
         cur.execute("SELECT id FROM users WHERE username = ?", (username,))
         row = cur.fetchone()
         if row is None:
             cur.execute(
-                "INSERT INTO users (username, created_at, last_login) VALUES (?, ?, ?)",
+                """
+                INSERT INTO users (username, created_at, last_login, role, is_active)
+                VALUES (?, ?, ?, 'user', 1)
+                """,
                 (username, now, now),
             )
             user_id = cur.lastrowid
@@ -416,8 +968,9 @@ def migrate_from_csv():
                     conf = 0.0
                 cur.execute(
                     """
-                    INSERT INTO history (user_id, part, result, confidence, trust, image_path, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO history (
+                        user_id, part, result, confidence, trust, image_path, model_version, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         user_id,
@@ -426,7 +979,8 @@ def migrate_from_csv():
                         conf,
                         row.get("trust", ""),
                         row.get("image_path", ""),
-                        row.get("datetime") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        row.get("model_version", "damage_model.h5"),
+                        row.get("datetime") or now_str(),
                     ),
                 )
 
@@ -454,7 +1008,7 @@ def migrate_from_csv():
                         row.get("is_correct"),
                         row.get("comment", ""),
                         row.get("image_path"),
-                        row.get("datetime") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        row.get("datetime") or now_str(),
                     ),
                 )
 

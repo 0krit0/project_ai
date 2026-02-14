@@ -1,0 +1,14 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.db
+dataset/
+raw_images/
+feedback_images/
+run*.log
+run_now*.log
+ngrok.exe

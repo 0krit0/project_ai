@@ -16,20 +16,61 @@
       <div class="notice error" style="margin-bottom:12px">{{ warning }}</div>
       {% endif %}
 
-      <form method="post">
+      <form method="post" enctype="multipart/form-data" id="authForm">
+        <div class="auth-avatar-block">
+          <img id="authAvatarPreview" class="auth-avatar-preview is-empty" alt="avatar preview">
+          <div id="authAvatarFallback" class="auth-avatar-fallback">AI</div>
+        </div>
+
         <label for="username">ชื่อผู้ใช้งาน</label>
         <input id="username" type="text" name="username" placeholder="เช่น Somchai" required>
 
-        {% if require_password %}
         <label for="password">รหัสผ่านระบบ</label>
-        <input id="password" type="password" name="password" autocomplete="current-password" required>
-        {% endif %}
+        <input id="password" type="password" name="password" autocomplete="current-password" minlength="6" required>
 
-        <button class="btn primary block" type="submit">เข้าสู่ระบบ</button>
+        <label for="avatar">รูปโปรไฟล์ (เลือกได้)</label>
+        <input id="avatar" type="file" name="avatar" accept="image/*" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;">
+        <div class="inline-actions" style="margin-top:6px">
+          <button id="pickAvatarBtn" class="btn ghost" type="button">เลือกรูปโปรไฟล์</button>
+          <span id="avatarFileName" class="helper">ยังไม่ได้เลือกไฟล์</span>
+        </div>
+        <p class="helper">รูปนี้จะถูกใช้เมื่อกด “สมัครสมาชิก” เท่านั้น</p>
+
+        <div class="inline-actions">
+          <button class="btn primary" type="submit" name="mode" value="login">เข้าสู่ระบบ</button>
+          <button class="btn ghost" type="submit" name="mode" value="register">สมัครสมาชิก</button>
+        </div>
       </form>
 
       <p class="helper">ควรตรวจสภาพจริงโดยช่างผู้เชี่ยวชาญก่อนซ่อมทุกครั้ง</p>
     </section>
   </main>
+<script>
+(function () {
+  const avatarInput = document.getElementById('avatar');
+  const preview = document.getElementById('authAvatarPreview');
+  const fallback = document.getElementById('authAvatarFallback');
+  const pickAvatarBtn = document.getElementById('pickAvatarBtn');
+  const avatarFileName = document.getElementById('avatarFileName');
+  if (!avatarInput || !preview || !fallback) return;
+  if (pickAvatarBtn) {
+    pickAvatarBtn.addEventListener('click', function () {
+      avatarInput.click();
+    });
+  }
+  avatarInput.addEventListener('change', function (e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (avatarFileName) avatarFileName.textContent = file.name;
+    const reader = new FileReader();
+    reader.onload = function (event) {
+      preview.src = event.target.result;
+      preview.classList.remove('is-empty');
+      fallback.style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+  });
+})();
+</script>
 </body>
 </html>

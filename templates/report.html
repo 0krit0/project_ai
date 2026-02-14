@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>รายงานล่าสุด | CarDamage AI</title>
+<link rel="stylesheet" href="/static/ui.css">
+</head>
+<body>
+<div class="page">
+  <aside class="sidebar">
+    <div class="brand">CarDamage AI</div>
+    <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
+    <nav class="nav">
+      <a href="/">วิเคราะห์</a>
+      <a href="/cases">เคสงาน</a>
+      <a href="/report/latest">รายงานล่าสุด</a>
+      <a href="/history">ประวัติ</a>
+      <a href="/profile">โปรไฟล์</a>
+      {% if is_admin %}
+      <a href="/admin">แอดมิน</a>
+      {% endif %}
+      <a href="/logout">ออกจากระบบ</a>
+    </nav>
+  </aside>
+  <main class="main">
+    <header class="header">
+      <h1>รายงานผลวิเคราะห์ล่าสุด</h1>
+      <p>หน้าแบบพิมพ์ได้ (Print-friendly) สำหรับแนบเอกสารหรือแปลงเป็น PDF</p>
+    </header>
+    <section class="card soft">
+      {% if row %}
+      <div class="kpis profile-kpis">
+        <div class="kpi"><div class="label">วันที่</div><div class="value">{{ row.datetime }}</div></div>
+        <div class="kpi"><div class="label">ตำแหน่ง</div><div class="value">{{ row.part }}</div></div>
+        <div class="kpi"><div class="label">ผลวิเคราะห์</div><div class="value">{{ row.result }}</div></div>
+        <div class="kpi"><div class="label">ความมั่นใจ</div><div class="value">{{ row.confidence }}%</div></div>
+        <div class="kpi"><div class="label">ความเชื่อมั่น</div><div class="value">{{ row.trust }}</div></div>
+        <div class="kpi"><div class="label">โมเดล</div><div class="value">{{ row.model_version or '-' }}</div></div>
+        <div class="kpi"><div class="label">ช่วงค่าใช้จ่าย</div><div class="value">{{ "{:,}".format(row.est_cost_min or 0) }} - {{ "{:,}".format(row.est_cost_max or 0) }} บาท</div></div>
+      </div>
+      <div style="margin-top:14px">
+        <img class="heatmap-image" src="/{{ row.image_path }}" alt="evidence image">
+      </div>
+      {% else %}
+      <div class="notice empty">ยังไม่มีผลวิเคราะห์สำหรับสร้างรายงาน</div>
+      {% endif %}
+      <div class="inline-actions" style="margin-top:12px">
+        <button class="btn primary" type="button" onclick="window.print()">พิมพ์/บันทึก PDF</button>
+        <a class="btn ghost" href="/report/latest.pdf">ดาวน์โหลด PDF (Server)</a>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

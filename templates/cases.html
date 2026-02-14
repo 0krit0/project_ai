@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>เคสงาน | CarDamage AI</title>
+<link rel="stylesheet" href="/static/ui.css">
+</head>
+<body>
+<div class="page">
+  <aside class="sidebar">
+    <div class="brand">CarDamage AI</div>
+    <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
+    <nav class="nav">
+      <a href="/">วิเคราะห์</a>
+      <a href="/cases">เคสงาน</a>
+      <a href="/report/latest">รายงานล่าสุด</a>
+      <a href="/history">ประวัติ</a>
+      <a href="/profile">โปรไฟล์</a>
+      {% if is_admin %}
+      <a href="/admin">แอดมิน</a>
+      {% endif %}
+      <a href="/logout">ออกจากระบบ</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <header class="header">
+      <h1>Case Management</h1>
+      <p>สร้างและติดตามเคสงานภาคสนาม พร้อมเพิ่มรูปได้หลายมุมผ่าน API</p>
+    </header>
+
+    <section class="card soft">
+      <h3>สร้างเคสใหม่</h3>
+      <form id="caseForm">
+        <label for="title">หัวข้อเคส</label>
+        <input id="title" name="title" type="text" required placeholder="เช่น เคส Toyota Camry 2020">
+        <label for="vehicle_info">ข้อมูลรถ</label>
+        <input id="vehicle_info" name="vehicle_info" type="text" placeholder="เช่น ทะเบียน กก1234, สีขาว">
+        <button class="btn primary" type="submit">สร้างเคส</button>
+      </form>
+      <p id="caseMsg" class="helper"></p>
+    </section>
+
+    <section class="card">
+      <h3>รายการเคส</h3>
+      {% if cases %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>หัวข้อ</th>
+              <th>ข้อมูลรถ</th>
+              <th>สถานะ</th>
+              <th>อัปเดตล่าสุด</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in cases %}
+            <tr>
+              <td data-label="ID">#{{ c.id }}</td>
+              <td data-label="หัวข้อ">{{ c.title }}</td>
+              <td data-label="ข้อมูลรถ">{{ c.vehicle_info or '-' }}</td>
+              <td data-label="สถานะ">{{ c.status }}</td>
+              <td data-label="อัปเดตล่าสุด">{{ c.updated_at }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="notice empty">ยังไม่มีเคสงาน</div>
+      {% endif %}
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  const form = document.getElementById('caseForm');
+  const msg = document.getElementById('caseMsg');
+  if (!form) return;
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const res = await fetch('/api/cases', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+      msg.textContent = 'สร้างเคสสำเร็จ #' + data.case_id + ' กำลังรีโหลด...';
+      setTimeout(function () { location.reload(); }, 700);
+    } else {
+      msg.textContent = 'สร้างเคสไม่สำเร็จ: ' + (data.error || 'unknown');
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -82,6 +82,30 @@ a {
   margin-bottom: 16px;
 }
 
+.sidebar-profile {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.sidebar-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #d5e5df;
+  box-shadow: var(--shadow-soft);
+}
+
+.sidebar-avatar-fallback {
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+}
+
 .nav {
   margin-top: 12px;
 }
@@ -673,6 +697,62 @@ th {
   max-width: 360px;
 }
 
+.auth-avatar-block {
+  display: grid;
+  place-items: center;
+  margin-bottom: 10px;
+}
+
+.auth-avatar-preview {
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  border: 2px solid #c7ddd3;
+  object-fit: cover;
+}
+
+.auth-avatar-preview.is-empty {
+  display: none;
+}
+
+.auth-avatar-fallback {
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 1.2rem;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.52);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  z-index: 2000;
+}
+
+.modal-card {
+  width: min(460px, 100%);
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--card-strong);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  text-align: center;
+}
+
+.modal-text {
+  color: var(--ink);
+  font-size: 1rem;
+  margin: 4px 0 14px;
+}
+
 .inline-actions {
   display: flex;
   align-items: center;
@@ -947,3 +1027,5 @@ th {
     width: 100%;
   }
 }
+
+

@@ -11,8 +11,18 @@
   <aside class="sidebar">
     <div class="brand">CarDamage AI</div>
     <div class="tagline">บัญชีผู้ใช้งาน</div>
+    <div class="sidebar-profile">
+      {% if session.get("user") and session.user.avatar_path %}
+      <img class="sidebar-avatar" src="/{{ session.user.avatar_path }}" alt="profile avatar">
+      {% else %}
+      <div class="sidebar-avatar sidebar-avatar-fallback">{{ username[0]|upper }}</div>
+      {% endif %}
+      <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
+    </div>
     <nav class="nav">
       <a href="/">วิเคราะห์</a>
+      <a href="/cases">เคสงาน</a>
+      <a href="/report/latest">รายงานล่าสุด</a>
       <a href="/history">ประวัติ</a>
       <a href="/profile">โปรไฟล์</a>
       {% if is_admin %}
@@ -31,6 +41,9 @@
 
     <section class="card soft profile-hero">
       <div>
+        {% if avatar_warning %}
+        <div class="notice error" style="margin-bottom:10px">{{ avatar_warning }}</div>
+        {% endif %}
         <div class="label">บัญชีผู้ใช้งาน</div>
         <div class="value mono profile-name">{{ username }}</div>
         <p class="helper">สถิตินี้ช่วยดูพฤติกรรมการใช้งานและความสม่ำเสมอของข้อมูลภาพที่อัปโหลด</p>
@@ -39,6 +52,15 @@
         <a class="btn primary" href="/export_csv">ดาวน์โหลดประวัติเป็น CSV</a>
         <a class="btn ghost" href="/history">ดูประวัติทั้งหมด</a>
       </div>
+    </section>
+
+    <section class="card">
+      <h3>รูปโปรไฟล์</h3>
+      <form method="post" action="/profile/avatar" enctype="multipart/form-data">
+        <label for="avatar">อัปโหลดรูปใหม่</label>
+        <input id="avatar" type="file" name="avatar" accept="image/*" required>
+        <button class="btn primary" type="submit" style="margin-top:10px">อัปเดตรูปโปรไฟล์</button>
+      </form>
     </section>
 
     <section class="card">
@@ -85,3 +107,4 @@
 </div>
 </body>
 </html>
+

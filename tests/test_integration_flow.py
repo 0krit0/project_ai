@@ -1,5 +1,6 @@
 ﻿import io
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -16,6 +17,7 @@ class IntegrationFlowTests(unittest.TestCase):
         app.app.config["TESTING"] = True
 
     def setUp(self):
+        app.ADMIN_USERNAME = "it_admin_root"
         self.client = app.app.test_client()
         self._cleanup_integration_users()
 
@@ -34,11 +36,6 @@ class IntegrationFlowTests(unittest.TestCase):
         conn.commit()
         conn.close()
 
-    def _login(self, username="it_flow_user"):
-        return self.client.post(
-            "/login", data={"username": username}, follow_redirects=True
-        )
-
     def _make_image_bytes(self):
         img = Image.new("RGB", (224, 224), (120, 120, 120))
         buf = io.BytesIO()
@@ -50,13 +47,20 @@ class IntegrationFlowTests(unittest.TestCase):
         return next(iter(app.RULES.keys()))
 
     def test_full_user_flow(self):
+        mock_model = SimpleNamespace(
+            predict=mock.Mock(return_value=np.array([[0.1, 0.8, 0.1]]))
+        )
         with mock.patch.object(
-            app.model, "predict", return_value=np.array([[0.1, 0.8, 0.1]])
+            app, "get_model", return_value=mock_model
         ), mock.patch.object(app, "should_retrain", return_value=(False, 0)), mock.patch.object(
             app, "generate_heatmap_overlay", return_value=None
         ):
-            login_resp = self._login()
-            self.assertEqual(login_resp.status_code, 200)
+            register_resp = self.client.post(
+                "/login",
+                data={"mode": "register", "username": "it_flow_user", "password": "secret123"},
+                follow_redirects=True,
+            )
+            self.assertEqual(register_resp.status_code, 200)
 
             analyze_resp = self.client.post(
                 "/",
@@ -69,7 +73,7 @@ class IntegrationFlowTests(unittest.TestCase):
             )
             self.assertEqual(analyze_resp.status_code, 200)
             text = analyze_resp.data.decode("utf-8", errors="replace")
-            self.assertIn("นโยบายการตีความความมั่นใจ", text)
+            self.assertIn("Top-3", text)
 
             history_resp = self.client.get("/history")
             profile_resp = self.client.get("/profile")
@@ -103,7 +107,11 @@ class IntegrationFlowTests(unittest.TestCase):
             conn.close()
 
     def test_upload_invalid_extension(self):
-        self._login()
+        self.client.post(
+            "/login",
+            data={"mode": "register", "username": "it_bad_ext", "password": "secret123"},
+            follow_redirects=True,
+        )
         bad_file = io.BytesIO(b"not-image")
         resp = self.client.post(
             "/",
@@ -116,14 +124,35 @@ class IntegrationFlowTests(unittest.TestCase):
         self.assertIn(".jpg", text)
 
     def test_admin_page_access(self):
-        self._login("it_admin")
+        self.client.post(
+            "/login",
+            data={"mode": "register", "username": "it_admin", "password": "secret123"},
+            follow_redirects=True,
+        )
         resp = self.client.get("/admin", follow_redirects=False)
         self.assertEqual(resp.status_code, 302)
 
         self.client.get("/logout", follow_redirects=True)
-        self._login("admin")
+        self.client.post(
+            "/login",
+            data={"mode": "register", "username": "it_admin_root", "password": "secret123"},
+            follow_redirects=True,
+        )
         admin_resp = self.client.get("/admin", follow_redirects=False)
         self.assertEqual(admin_resp.status_code, 200)
+
+    def test_api_health_and_history(self):
+        self.client.post(
+            "/login",
+            data={"mode": "register", "username": "it_api", "password": "secret123"},
+            follow_redirects=True,
+        )
+        h = self.client.get("/api/health")
+        self.assertEqual(h.status_code, 200)
+
+        history = self.client.get("/api/history")
+        self.assertEqual(history.status_code, 200)
+        self.assertIn("ok", history.get_json())
 
 
 if __name__ == "__main__":

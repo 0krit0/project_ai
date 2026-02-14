@@ -20,9 +20,18 @@
     <aside class="sidebar">
       <div class="brand">CarDamage AI</div>
       <div class="tagline">เครื่องมือประเมินความเสียหายเบื้องต้น</div>
-      <div class="tagline">ผู้ใช้: <span class="mono">{{ session.user.name }}</span></div>
+      <div class="sidebar-profile">
+        {% if session.get("user") and session.user.avatar_path %}
+        <img class="sidebar-avatar" src="/{{ session.user.avatar_path }}" alt="profile avatar">
+        {% else %}
+        <div class="sidebar-avatar sidebar-avatar-fallback">{{ session.user.name[0]|upper }}</div>
+        {% endif %}
+        <div class="tagline">ผู้ใช้: <span class="mono">{{ session.user.name }}</span></div>
+      </div>
       <nav class="nav">
         <a href="/">วิเคราะห์</a>
+        <a href="/cases">เคสงาน</a>
+        <a href="/report/latest">รายงานล่าสุด</a>
         <a href="/history">ประวัติ</a>
         <a href="/profile">โปรไฟล์</a>
         {% if is_admin %}
@@ -70,6 +79,16 @@
           <article class="card">
             <div class="notice error">{{ warning }}</div>
           </article>
+          {% endif %}
+
+          {% if warning and "ไม่สามารถยืนยันว่าเป็นภาพความเสียหายของรถได้" in warning %}
+          <div id="nonCarModal" class="modal-backdrop">
+            <div class="modal-card">
+              <h3>แจ้งเตือน</h3>
+              <p class="modal-text">นี่ไม่ใช่รถ หรือไม่เห็นชิ้นส่วนรถชัดเจน กรุณาอัปโหลดภาพรถใหม่</p>
+              <button id="closeNonCarModal" class="btn warm" type="button">เข้าใจแล้ว</button>
+            </div>
+          </div>
           {% endif %}
 
           {% if result %}
@@ -120,6 +139,30 @@
               </div>
             </section>
 
+            <section class="caution-box">
+              ประมาณค่าใช้จ่ายเบื้องต้น: {{ "{:,}".format(est_cost_min or 0) }} - {{ "{:,}".format(est_cost_max or 0) }} บาท
+            </section>
+
+            {% if assessment_options %}
+            <section class="evidence-box">
+              <div class="label">ผลประเมินหลายระดับ (Multi-Outcome)</div>
+              <div class="helper">ช่องว่างคะแนนอันดับ 1-2: {{ score_gap }}% | ความไม่แน่นอน: {{ uncertainty }}</div>
+              <ul class="evidence-list">
+                {% for opt in assessment_options %}
+                <li>
+                  <span class="evidence-label">{{ opt.label }}</span>
+                  <div class="evidence-meter"><span data-score="{{ opt.score }}"></span></div>
+                  <span class="evidence-score">{{ opt.score }}%</span>
+                </li>
+                <li style="grid-template-columns: 1fr;">
+                  <span class="helper">ค่าใช้จ่าย: {{ "{:,}".format(opt.cost_min) }} - {{ "{:,}".format(opt.cost_max) }} บาท | {{ opt.repair }}</span>
+                </li>
+                {% endfor %}
+              </ul>
+              <div class="helper">ค่าใช้จ่ายคาดหวังแบบถ่วงน้ำหนัก: <b>{{ "{:,}".format(expected_cost or 0) }} บาท</b></div>
+            </section>
+            {% endif %}
+
             {% if quality_notes %}
             <section class="quality-box">
               <div class="label">ผลตรวจคุณภาพภาพก่อนวิเคราะห์</div>
@@ -133,7 +176,7 @@
 
             {% if evidence_items %}
             <section class="evidence-box">
-              <div class="label">หลักฐานประกอบการตัดสินใจ (Top-3)</div>
+              <div class="label">หลักฐานประกอบการตัดสินใจ (Top-{{ top_k_outcomes or evidence_items|length }})</div>
               <ul class="evidence-list">
                 {% for item in evidence_items %}
                 <li>
@@ -156,6 +199,9 @@
             <section class="snapshot-box">
               <div class="label">สรุปผลแบบย่อ</div>
               <div id="analysisSnapshot" class="snapshot-text">{{ selected_part }} | {{ result }} | {{ confidence }}% | {{ trust }}</div>
+              {% if model_version %}
+              <p class="helper">โมเดลที่ใช้: <span class="mono">{{ model_version }}</span></p>
+              {% endif %}
               <button id="copySnapshotBtn" class="btn ghost" type="button">คัดลอกสรุป</button>
             </section>
           </div>
@@ -277,6 +323,19 @@
         }, 1200);
       } catch (err) {
         copySnapshotBtn.textContent = 'คัดลอกไม่สำเร็จ';
+      }
+    });
+  }
+
+  const nonCarModal = document.getElementById('nonCarModal');
+  const closeNonCarModal = document.getElementById('closeNonCarModal');
+  if (nonCarModal && closeNonCarModal) {
+    closeNonCarModal.addEventListener('click', function () {
+      nonCarModal.style.display = 'none';
+    });
+    nonCarModal.addEventListener('click', function (e) {
+      if (e.target === nonCarModal) {
+        nonCarModal.style.display = 'none';
       }
     });
   }

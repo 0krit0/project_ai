@@ -10,9 +10,18 @@
 <div class="page">
   <aside class="sidebar">
     <div class="brand">CarDamage AI</div>
-    <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
+    <div class="sidebar-profile">
+      {% if session.get("user") and session.user.avatar_path %}
+      <img class="sidebar-avatar" src="/{{ session.user.avatar_path }}" alt="profile avatar">
+      {% else %}
+      <div class="sidebar-avatar sidebar-avatar-fallback">{{ username[0]|upper }}</div>
+      {% endif %}
+      <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
+    </div>
     <nav class="nav">
       <a href="/">วิเคราะห์</a>
+      <a href="/cases">เคสงาน</a>
+      <a href="/report/latest">รายงานล่าสุด</a>
       <a href="/history">ประวัติ</a>
       <a href="/profile">โปรไฟล์</a>
       {% if is_admin %}
@@ -73,6 +82,8 @@
               <th>ผล AI</th>
               <th>ความมั่นใจ</th>
               <th>ความเชื่อมั่น</th>
+              <th>โมเดล</th>
+              <th>ค่าใช้จ่าย</th>
               <th>รูป</th>
             </tr>
           </thead>
@@ -84,6 +95,8 @@
               <td data-label="ผล AI"><span class="badge {{ r.result }}">{{ r.result }}</span></td>
               <td data-label="ความมั่นใจ">{{ r.confidence }}%</td>
               <td data-label="ความเชื่อมั่น">{{ r.trust }}</td>
+              <td data-label="โมเดล">{{ r.model_version or '-' }}</td>
+              <td data-label="ค่าใช้จ่าย">{{ "{:,}".format(r.est_cost_min or 0) }}-{{ "{:,}".format(r.est_cost_max or 0) }}</td>
               <td data-label="รูป"><img class="thumb" src="/{{ r.image_path }}" alt="history image"></td>
             </tr>
           {% endfor %}
@@ -98,3 +111,4 @@
 </div>
 </body>
 </html>
+
