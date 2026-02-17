@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="th">
 <head>
 <meta charset="utf-8">
@@ -14,6 +14,9 @@
     <nav class="nav">
       <a href="/">วิเคราะห์</a>
       <a href="/cases">เคสงาน</a>
+      {% if nav_is_reviewer %}
+      <a href="/reviewer">รีวิวเคส</a>
+      {% endif %}
       <a href="/report/latest">รายงานล่าสุด</a>
       <a href="/history">ประวัติ</a>
       <a href="/profile">โปรไฟล์</a>
@@ -26,8 +29,8 @@
 
   <main class="main">
     <header class="header">
-      <h1>Case Management</h1>
-      <p>สร้างและติดตามเคสงานภาคสนาม พร้อมเพิ่มรูปได้หลายมุมผ่าน API</p>
+      <h1>จัดการเคสงาน</h1>
+      <p>สร้างและติดตามเคสภาคสนาม พร้อมแนบภาพหลายมุม และทำงานต่อเนื่องไปหน้า Analyze ได้ทันที</p>
     </header>
 
     <section class="card soft">
@@ -35,15 +38,91 @@
       <form id="caseForm">
         <label for="title">หัวข้อเคส</label>
         <input id="title" name="title" type="text" required placeholder="เช่น เคส Toyota Camry 2020">
-        <label for="vehicle_info">ข้อมูลรถ</label>
+        <label for="vehicle_info">ข้อมูลรถ / ป้ายทะเบียน</label>
         <input id="vehicle_info" name="vehicle_info" type="text" placeholder="เช่น ทะเบียน กก1234, สีขาว">
         <button class="btn primary" type="submit">สร้างเคส</button>
       </form>
       <p id="caseMsg" class="helper"></p>
     </section>
 
+    <section class="card soft">
+      <h3>แนบรูปหลายมุมเข้าเคส</h3>
+      {% if cases %}
+      <form id="caseUploadForm">
+        <label for="upload_case_id">เลือกเคส</label>
+        <select id="upload_case_id" name="case_id" required>
+          {% for c in cases %}
+          <option value="{{ c.id }}">#{{ c.id|case_code }} - {{ c.title }}</option>
+          {% endfor %}
+        </select>
+
+        <label for="upload_files">รูปหลายมุม</label>
+        <input id="upload_files" type="file" name="files" accept="image/*" multiple required>
+        <p class="helper">เลือกได้หลายรูปในครั้งเดียว ระบบจะอัปโหลดเข้าทีละรูปให้อัตโนมัติ</p>
+
+        <label for="upload_note">หมายเหตุรูป</label>
+        <input id="upload_note" name="note" type="text" placeholder="เช่น มุมซ้ายหน้า / รอยบุบชัดเจน">
+
+        <button class="btn warm" type="submit">อัปโหลดรูปเข้าเคส</button>
+      </form>
+      <p id="uploadMsg" class="helper"></p>
+      {% else %}
+      <div class="notice empty">ยังไม่มีเคส กรุณาสร้างเคสก่อน แล้วจึงแนบรูปหลายมุม</div>
+      {% endif %}
+    </section>
+
+    {% if is_reviewer %}
+    <section class="card soft">
+      <h3>คิวเคสรอตรวจ (ผู้ตรวจทาน)</h3>
+      {% if review_cases %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>เจ้าของเคส</th>
+              <th>หัวข้อ</th>
+              <th>ผลเดิม</th>
+              <th>ความมั่นใจ</th>
+              <th>อัปเดตล่าสุด</th>
+              <th>ยืนยันผล</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in review_cases %}
+            <tr>
+              <td data-label="ID">#{{ c.id|case_code }}</td>
+              <td data-label="เจ้าของเคส">{{ c.username }}</td>
+              <td data-label="หัวข้อ">{{ c.title }}</td>
+              <td data-label="ผลเดิม">{{ c.predicted_result or '-' }}</td>
+              <td data-label="ความมั่นใจ">{{ c.predicted_confidence if c.predicted_confidence is not none else '-' }}</td>
+              <td data-label="อัปเดตล่าสุด">{{ c.updated_at }}</td>
+              <td data-label="ยืนยันผล">
+                <form class="review-form" data-case-id="{{ c.id }}">
+                  <select name="final_result" required>
+                    <option value="">เลือกผลยืนยัน</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                  </select>
+                  <input name="reviewer_note" type="text" placeholder="หมายเหตุผู้ตรวจ (ไม่บังคับ)">
+                  <button class="btn warm" type="submit">ยืนยัน</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="notice empty">ไม่มีเคสรอตรวจ</div>
+      {% endif %}
+      <p id="reviewMsg" class="helper"></p>
+    </section>
+    {% endif %}
+
     <section class="card">
-      <h3>รายการเคส</h3>
+      <h3>รายการเคสของฉัน</h3>
       {% if cases %}
       <div class="table-wrap">
         <table>
@@ -53,16 +132,27 @@
               <th>หัวข้อ</th>
               <th>ข้อมูลรถ</th>
               <th>สถานะ</th>
+              <th>ผลเดิม</th>
+              <th>ผลยืนยัน</th>
+              <th>หมายเหตุ reviewer</th>
+              <th>ดำเนินการ</th>
               <th>อัปเดตล่าสุด</th>
             </tr>
           </thead>
           <tbody>
             {% for c in cases %}
             <tr>
-              <td data-label="ID">#{{ c.id }}</td>
+              <td data-label="ID">#{{ c.id|case_code }}</td>
               <td data-label="หัวข้อ">{{ c.title }}</td>
               <td data-label="ข้อมูลรถ">{{ c.vehicle_info or '-' }}</td>
               <td data-label="สถานะ">{{ c.status }}</td>
+              <td data-label="ผลเดิม">{{ c.predicted_result or '-' }}</td>
+              <td data-label="ผลยืนยัน">{{ c.final_result or '-' }}</td>
+              <td data-label="หมายเหตุ reviewer">{{ c.reviewer_note or '-' }}</td>
+              <td data-label="ดำเนินการ">
+                <a class="btn ghost" href="/cases/{{ c.id }}">ดูรายละเอียด</a>
+                <a class="btn ghost" href="/?case_id={{ c.id }}">วิเคราะห์เคสนี้</a>
+              </td>
               <td data-label="อัปเดตล่าสุด">{{ c.updated_at }}</td>
             </tr>
             {% endfor %}
@@ -80,18 +170,65 @@
 (function () {
   const form = document.getElementById('caseForm');
   const msg = document.getElementById('caseMsg');
-  if (!form) return;
-  form.addEventListener('submit', async function (e) {
-    e.preventDefault();
-    const fd = new FormData(form);
-    const res = await fetch('/api/cases', { method: 'POST', body: fd });
-    const data = await res.json();
-    if (data.ok) {
-      msg.textContent = 'สร้างเคสสำเร็จ #' + data.case_id + ' กำลังรีโหลด...';
-      setTimeout(function () { location.reload(); }, 700);
-    } else {
-      msg.textContent = 'สร้างเคสไม่สำเร็จ: ' + (data.error || 'unknown');
-    }
+  if (form) {
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const res = await fetch('/api/cases', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.ok) {
+        const code = data.case_code || String(data.case_id || '').padStart(6, '0');
+        msg.textContent = 'สร้างเคสสำเร็จ #' + code + ' กำลังเปิดหน้ารายละเอียดเคส...';
+        setTimeout(function () { window.location.href = '/cases/' + data.case_id; }, 500);
+      } else {
+        msg.textContent = 'สร้างเคสไม่สำเร็จ: ' + (data.error || 'unknown');
+      }
+    });
+  }
+
+  const uploadForm = document.getElementById('caseUploadForm');
+  const uploadMsg = document.getElementById('uploadMsg');
+  if (uploadForm) {
+    uploadForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const caseId = document.getElementById('upload_case_id').value;
+      const files = document.getElementById('upload_files').files;
+      const note = document.getElementById('upload_note').value || '';
+      if (!caseId || !files || !files.length) {
+        if (uploadMsg) uploadMsg.textContent = 'กรุณาเลือกเคสและรูปก่อนอัปโหลด';
+        return;
+      }
+
+      let okCount = 0;
+      for (let i = 0; i < files.length; i += 1) {
+        const fd = new FormData();
+        fd.append('file', files[i]);
+        fd.append('note', note);
+        const res = await fetch('/api/cases/' + caseId + '/images', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) okCount += 1;
+      }
+      if (uploadMsg) uploadMsg.textContent = 'อัปโหลดสำเร็จ ' + okCount + '/' + files.length + ' รูป';
+      if (okCount > 0) setTimeout(function () { location.reload(); }, 900);
+    });
+  }
+
+  const reviewMsg = document.getElementById('reviewMsg');
+  document.querySelectorAll('.review-form').forEach(function (reviewForm) {
+    reviewForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const caseId = reviewForm.getAttribute('data-case-id');
+      const fd = new FormData(reviewForm);
+      const res = await fetch('/api/cases/' + caseId + '/review', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.ok) {
+        const code = String(caseId || '').padStart(6, '0');
+        if (reviewMsg) reviewMsg.textContent = 'บันทึกผลรีวิวเคส #' + code + ' แล้ว';
+        setTimeout(function () { location.reload(); }, 700);
+      } else {
+        if (reviewMsg) reviewMsg.textContent = 'รีวิวไม่สำเร็จ: ' + (data.error || 'unknown');
+      }
+    });
   });
 })();
 </script>

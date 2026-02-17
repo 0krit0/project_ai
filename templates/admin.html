@@ -22,10 +22,15 @@
     <nav class="nav">
       <a href="/">วิเคราะห์</a>
       <a href="/cases">เคสงาน</a>
+      {% if nav_is_reviewer %}
+      <a href="/reviewer">รีวิวเคส</a>
+      {% endif %}
       <a href="/report/latest">รายงานล่าสุด</a>
       <a href="/history">ประวัติ</a>
       <a href="/profile">โปรไฟล์</a>
+      {% if nav_is_admin %}
       <a href="/admin">แอดมิน</a>
+      {% endif %}
       <a href="/export_csv">ส่งออก CSV</a>
       <a href="/logout">ออกจากระบบ</a>
     </nav>
@@ -105,6 +110,68 @@
         <div class="helper">คำเตือน: การกู้คืนจะทับข้อมูลปัจจุบันทั้งหมด</div>
         <button class="btn warm" type="submit" style="margin-top:10px">Restore Database</button>
       </form>
+    </section>
+
+    <section class="card">
+      <h3>จัดการผู้ใช้</h3>
+      {% if user_rows %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>ชื่อผู้ใช้</th>
+              <th>สิทธิ์</th>
+              <th>สถานะ</th>
+              <th>สร้างเมื่อ</th>
+              <th>เข้าใช้ล่าสุด</th>
+              <th>อัปเดตสิทธิ์</th>
+              <th>รีเซ็ตรหัสผ่าน</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in user_rows %}
+            <tr>
+              <td data-label="ID">#{{ u.id }}</td>
+              <td data-label="ชื่อผู้ใช้">{{ u.username }}</td>
+              <td data-label="สิทธิ์">
+                <select name="role" form="user-form-{{ u.id }}" required {% if u.id == session.user.id %}disabled{% endif %}>
+                  <option value="user" {% if u.role == "user" %}selected{% endif %}>user</option>
+                  <option value="reviewer" {% if u.role == "reviewer" %}selected{% endif %}>reviewer</option>
+                  <option value="admin" {% if u.role == "admin" %}selected{% endif %}>admin</option>
+                </select>
+              </td>
+              <td data-label="สถานะ">
+                <select name="is_active" form="user-form-{{ u.id }}" required {% if u.id == session.user.id %}disabled{% endif %}>
+                  <option value="1" {% if u.is_active == 1 %}selected{% endif %}>ใช้งาน</option>
+                  <option value="0" {% if u.is_active == 0 %}selected{% endif %}>ปิดใช้งาน</option>
+                </select>
+              </td>
+              <td data-label="สร้างเมื่อ">{{ u.created_at or "-" }}</td>
+              <td data-label="เข้าใช้ล่าสุด">{{ u.last_login or "-" }}</td>
+              <td data-label="อัปเดตสิทธิ์">
+                <form id="user-form-{{ u.id }}" method="post" action="/admin/users/{{ u.id }}/update" class="inline-actions">
+                {% if u.id == session.user.id %}
+                <span class="helper">บัญชีนี้ (ล็อกไว้)</span>
+                {% else %}
+                <button class="btn ghost" type="submit">อัปเดต</button>
+                {% endif %}
+                </form>
+              </td>
+              <td data-label="รีเซ็ตรหัสผ่าน">
+                <form method="post" action="/admin/users/{{ u.id }}/password" class="inline-actions">
+                  <input type="password" name="new_password" minlength="8" placeholder="รหัสใหม่ (8+ ตัว, มีตัวอักษร+ตัวเลข)" required>
+                  <button class="btn warm" type="submit">รีเซ็ต</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="notice empty">ยังไม่มีข้อมูลผู้ใช้</div>
+      {% endif %}
     </section>
 
     <section class="card">

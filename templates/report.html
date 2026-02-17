@@ -14,6 +14,9 @@
     <nav class="nav">
       <a href="/">วิเคราะห์</a>
       <a href="/cases">เคสงาน</a>
+      {% if nav_is_reviewer %}
+      <a href="/reviewer">รีวิวเคส</a>
+      {% endif %}
       <a href="/report/latest">รายงานล่าสุด</a>
       <a href="/history">ประวัติ</a>
       <a href="/profile">โปรไฟล์</a>
@@ -23,12 +26,24 @@
       <a href="/logout">ออกจากระบบ</a>
     </nav>
   </aside>
+
   <main class="main">
     <header class="header">
       <h1>รายงานผลวิเคราะห์ล่าสุด</h1>
-      <p>หน้าแบบพิมพ์ได้ (Print-friendly) สำหรับแนบเอกสารหรือแปลงเป็น PDF</p>
+      <p>หน้าแบบพิมพ์ได้ (Print-friendly) พร้อมเลือกโทนสรุปสำหรับลูกค้า/ช่าง/ประกัน</p>
     </header>
+
     <section class="card soft">
+      <div class="inline-actions" style="margin-bottom:12px">
+        <label for="summaryToneSelect">โทนสรุปรายงาน</label>
+        <select id="summaryToneSelect">
+          <option value="customer" {% if summary_tone == "customer" %}selected{% endif %}>ลูกค้า</option>
+          <option value="technical" {% if summary_tone == "technical" %}selected{% endif %}>ช่าง/เทคนิค</option>
+          <option value="insurance" {% if summary_tone == "insurance" %}selected{% endif %}>ประกัน</option>
+        </select>
+        <button class="btn ghost" type="button" id="applyToneBtn">เปลี่ยนโทน</button>
+      </div>
+
       {% if row %}
       <div class="kpis profile-kpis">
         <div class="kpi"><div class="label">วันที่</div><div class="value">{{ row.datetime }}</div></div>
@@ -42,15 +57,48 @@
       <div style="margin-top:14px">
         <img class="heatmap-image" src="/{{ row.image_path }}" alt="evidence image">
       </div>
+      {% if incident_summary %}
+      <div class="quality-box" style="margin-top:12px">
+        <div class="label">Incident Summary ({{ summary_tone }})</div>
+        <p class="helper">{{ incident_summary }}</p>
+      </div>
+      {% endif %}
       {% else %}
       <div class="notice empty">ยังไม่มีผลวิเคราะห์สำหรับสร้างรายงาน</div>
       {% endif %}
+
       <div class="inline-actions" style="margin-top:12px">
         <button class="btn primary" type="button" onclick="window.print()">พิมพ์/บันทึก PDF</button>
-        <a class="btn ghost" href="/report/latest.pdf">ดาวน์โหลด PDF (Server)</a>
+        <a class="btn ghost" id="pdfToneLink" href="/report/latest.pdf?summary_tone={{ summary_tone or 'customer' }}">ดาวน์โหลด PDF (Server)</a>
+        <a class="btn ghost" id="csvToneLink" href="/export_csv?summary_tone={{ summary_tone or 'customer' }}">ส่งออก CSV (โทนนี้)</a>
       </div>
     </section>
   </main>
 </div>
+
+<script>
+(function () {
+  const toneSelect = document.getElementById('summaryToneSelect');
+  const applyBtn = document.getElementById('applyToneBtn');
+  const pdfLink = document.getElementById('pdfToneLink');
+  const csvLink = document.getElementById('csvToneLink');
+  if (!toneSelect) return;
+
+  function refreshLinks() {
+    const tone = toneSelect.value || 'customer';
+    if (pdfLink) pdfLink.href = '/report/latest.pdf?summary_tone=' + encodeURIComponent(tone);
+    if (csvLink) csvLink.href = '/export_csv?summary_tone=' + encodeURIComponent(tone);
+  }
+
+  refreshLinks();
+  toneSelect.addEventListener('change', refreshLinks);
+  if (applyBtn) {
+    applyBtn.addEventListener('click', function () {
+      const tone = toneSelect.value || 'customer';
+      window.location.href = '/report/latest?summary_tone=' + encodeURIComponent(tone);
+    });
+  }
+})();
+</script>
 </body>
 </html>

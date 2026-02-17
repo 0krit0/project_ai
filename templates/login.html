@@ -26,7 +26,11 @@
         <input id="username" type="text" name="username" placeholder="เช่น Somchai" required>
 
         <label for="password">รหัสผ่านระบบ</label>
-        <input id="password" type="password" name="password" autocomplete="current-password" minlength="6" required>
+        <div class="inline-actions">
+          <input id="password" type="password" name="password" autocomplete="current-password" minlength="8" required>
+          <button id="togglePasswordBtn" class="btn ghost" type="button">เปิดตา</button>
+        </div>
+        <p class="helper">อย่างน้อย 8 ตัว และต้องมีตัวอักษรภาษาอังกฤษกับตัวเลข</p>
 
         <label for="avatar">รูปโปรไฟล์ (เลือกได้)</label>
         <input id="avatar" type="file" name="avatar" accept="image/*" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;">
@@ -48,11 +52,20 @@
 <script>
 (function () {
   const avatarInput = document.getElementById('avatar');
+  const passwordInput = document.getElementById('password');
+  const togglePasswordBtn = document.getElementById('togglePasswordBtn');
   const preview = document.getElementById('authAvatarPreview');
   const fallback = document.getElementById('authAvatarFallback');
   const pickAvatarBtn = document.getElementById('pickAvatarBtn');
   const avatarFileName = document.getElementById('avatarFileName');
   if (!avatarInput || !preview || !fallback) return;
+  if (passwordInput && togglePasswordBtn) {
+    togglePasswordBtn.addEventListener('click', function () {
+      const isHidden = passwordInput.type === 'password';
+      passwordInput.type = isHidden ? 'text' : 'password';
+      togglePasswordBtn.textContent = isHidden ? 'ปิดตา' : 'เปิดตา';
+    });
+  }
   if (pickAvatarBtn) {
     pickAvatarBtn.addEventListener('click', function () {
       avatarInput.click();

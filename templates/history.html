@@ -21,6 +21,9 @@
     <nav class="nav">
       <a href="/">วิเคราะห์</a>
       <a href="/cases">เคสงาน</a>
+      {% if nav_is_reviewer %}
+      <a href="/reviewer">รีวิวเคส</a>
+      {% endif %}
       <a href="/report/latest">รายงานล่าสุด</a>
       <a href="/history">ประวัติ</a>
       <a href="/profile">โปรไฟล์</a>

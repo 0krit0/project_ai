@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>รายละเอียดเคส | CarDamage AI</title>
+<link rel="stylesheet" href="/static/ui.css">
+</head>
+<body>
+<div class="page">
+  <aside class="sidebar">
+    <div class="brand">CarDamage AI</div>
+    <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
+    <nav class="nav">
+      <a href="/">วิเคราะห์</a>
+      <a href="/cases">เคสงาน</a>
+      {% if nav_is_reviewer %}
+      <a href="/reviewer">รีวิวเคส</a>
+      {% endif %}
+      <a href="/report/latest">รายงานล่าสุด</a>
+      <a href="/history">ประวัติ</a>
+      <a href="/profile">โปรไฟล์</a>
+      {% if is_admin %}
+      <a href="/admin">แอดมิน</a>
+      {% endif %}
+      <a href="/logout">ออกจากระบบ</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <header class="header">
+      <h1>รายละเอียดเคส #{{ case_data.id|case_code }}</h1>
+      <p>{{ case_data.title }} | {{ case_data.vehicle_info or "-" }}</p>
+      <div class="inline-actions">
+        <a class="btn ghost" href="/cases">กลับหน้าเคส</a>
+        <a class="btn primary" href="/?case_id={{ case_data.id }}">วิเคราะห์เคสนี้</a>
+      </div>
+    </header>
+
+    <section class="card soft">
+      <h3>แนบรูปเพิ่ม</h3>
+      <form id="addImageForm">
+        <label for="add_files">รูปภาพ</label>
+        <input id="add_files" type="file" accept="image/*" multiple required>
+        <label for="add_note">หมายเหตุ</label>
+        <input id="add_note" type="text" placeholder="เช่น มุมขวาหลัง / รอยแตกชัด">
+        <button class="btn warm" type="submit">เพิ่มรูปเข้าเคส</button>
+      </form>
+      <p id="addMsg" class="helper"></p>
+    </section>
+
+    <section class="card">
+      <h3>รูปที่แนบในเคส</h3>
+      {% if case_data.images %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID รูป</th>
+              <th>ภาพ</th>
+              <th>หมายเหตุ</th>
+              <th>เวลา</th>
+              <th>จัดการ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for img in case_data.images %}
+            <tr>
+              <td data-label="ID รูป">#{{ img.id }}</td>
+              <td data-label="ภาพ">
+                <img class="thumb" src="/{{ img.image_path }}" alt="case image {{ img.id }}">
+              </td>
+              <td data-label="หมายเหตุ">{{ img.note or "-" }}</td>
+              <td data-label="เวลา">{{ img.created_at }}</td>
+              <td data-label="จัดการ">
+                <a class="btn ghost" href="/?case_id={{ case_data.id }}&case_image_id={{ img.id }}">วิเคราะห์รูปนี้</a>
+                <button class="btn warm del-image-btn" type="button" data-image-id="{{ img.id }}">ลบรูป</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="notice empty">ยังไม่มีรูปในเคสนี้</div>
+      {% endif %}
+      <p id="delMsg" class="helper"></p>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  const addForm = document.getElementById('addImageForm');
+  const addMsg = document.getElementById('addMsg');
+  const delMsg = document.getElementById('delMsg');
+  const caseId = '{{ case_data.id }}';
+
+  if (addForm) {
+    addForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const files = document.getElementById('add_files').files;
+      const note = document.getElementById('add_note').value || '';
+      if (!files || !files.length) {
+        if (addMsg) addMsg.textContent = 'กรุณาเลือกรูปก่อน';
+        return;
+      }
+      let okCount = 0;
+      for (let i = 0; i < files.length; i += 1) {
+        const fd = new FormData();
+        fd.append('file', files[i]);
+        fd.append('note', note);
+        const res = await fetch('/api/cases/' + caseId + '/images', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) okCount += 1;
+      }
+      if (addMsg) addMsg.textContent = 'เพิ่มรูปสำเร็จ ' + okCount + '/' + files.length + ' รูป';
+      if (okCount > 0) setTimeout(function () { location.reload(); }, 800);
+    });
+  }
+
+  document.querySelectorAll('.del-image-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      const imageId = btn.getAttribute('data-image-id');
+      if (!imageId) return;
+      if (!confirm('ยืนยันลบรูปนี้จากเคส?')) return;
+      const res = await fetch('/api/cases/' + caseId + '/images/' + imageId + '/delete', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        if (delMsg) delMsg.textContent = 'ลบรูป #' + imageId + ' สำเร็จ';
+        setTimeout(function () { location.reload(); }, 600);
+      } else {
+        if (delMsg) delMsg.textContent = 'ลบไม่สำเร็จ: ' + (data.error || 'unknown');
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>

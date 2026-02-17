@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>หน้าผู้ตรวจทาน | CarDamage AI</title>
+<link rel="stylesheet" href="/static/ui.css">
+</head>
+<body>
+<div class="page">
+  <aside class="sidebar">
+    <div class="brand">CarDamage AI</div>
+    <div class="tagline">หน้าผู้ตรวจทาน</div>
+    <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
+    <nav class="nav">
+      <a href="/">วิเคราะห์</a>
+      <a href="/cases">เคสงาน</a>
+      <a href="/reviewer">รีวิวเคส</a>
+      <a href="/report/latest">รายงานล่าสุด</a>
+      <a href="/history">ประวัติ</a>
+      <a href="/profile">โปรไฟล์</a>
+      {% if is_admin %}
+      <a href="/admin">แอดมิน</a>
+      {% endif %}
+      <a href="/logout">ออกจากระบบ</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <header class="header">
+      <h1>หน้าผู้ตรวจทาน</h1>
+      <p>จัดการเคสรอตรวจและยืนยันผล override พร้อมดูประวัติการรีวิวล่าสุด</p>
+    </header>
+
+    <section class="card soft">
+      <h3>เคสรอตรวจทาน</h3>
+      <div class="helper">คิวปัจจุบัน: {{ pending_cases|length }} เคส</div>
+      {% if pending_cases %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>เจ้าของเคส</th>
+              <th>หัวข้อ</th>
+              <th>ผลเดิม</th>
+              <th>ความมั่นใจ</th>
+              <th>อัปเดตล่าสุด</th>
+              <th>ยืนยันผล</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in pending_cases %}
+            <tr>
+              <td data-label="ID">#{{ c.id|case_code }}</td>
+              <td data-label="เจ้าของเคส">{{ c.username }}</td>
+              <td data-label="หัวข้อ">{{ c.title }}</td>
+              <td data-label="ผลเดิม">{{ c.predicted_result or "-" }}</td>
+              <td data-label="ความมั่นใจ">{{ c.predicted_confidence if c.predicted_confidence is not none else "-" }}</td>
+              <td data-label="อัปเดตล่าสุด">{{ c.updated_at }}</td>
+              <td data-label="ยืนยันผล">
+                <form class="review-form" data-case-id="{{ c.id }}">
+                  <select name="final_result" required>
+                    <option value="">เลือกผลยืนยัน</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                  </select>
+                  <input name="reviewer_note" type="text" placeholder="หมายเหตุ reviewer (ไม่บังคับ)">
+                  <button class="btn warm" type="submit">ยืนยัน</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="notice empty">ไม่มีเคสรอตรวจ</div>
+      {% endif %}
+      <p id="reviewMsg" class="helper"></p>
+    </section>
+
+    <section class="card">
+      <h3>รีวิวล่าสุด</h3>
+      {% if reviewed_cases %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>เจ้าของเคส</th>
+              <th>ผู้รีวิว</th>
+              <th>ผลเดิม</th>
+              <th>ผลยืนยัน</th>
+              <th>เวลารีวิว</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in reviewed_cases[:40] %}
+            <tr>
+              <td data-label="ID">#{{ c.id|case_code }}</td>
+              <td data-label="เจ้าของเคส">{{ c.owner_username }}</td>
+              <td data-label="ผู้รีวิว">{{ c.reviewer_username or "-" }}</td>
+              <td data-label="ผลเดิม">{{ c.predicted_result or "-" }}</td>
+              <td data-label="ผลยืนยัน">{{ c.final_result or "-" }}</td>
+              <td data-label="เวลารีวิว">{{ c.reviewed_at or c.updated_at }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="notice empty">ยังไม่มีประวัติการรีวิว</div>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h3>Audit ล่าสุด (Case Review)</h3>
+      {% if audit_rows %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>เวลา</th>
+              <th>ผู้ใช้</th>
+              <th>Action</th>
+              <th>Target</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in audit_rows %}
+            <tr>
+              <td data-label="เวลา">{{ a.created_at }}</td>
+              <td data-label="ผู้ใช้">{{ a.username or "-" }}</td>
+              <td data-label="Action">{{ a.action }}</td>
+              <td data-label="Target">{{ a.target or "-" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="notice empty">ยังไม่มี audit การรีวิว</div>
+      {% endif %}
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  const reviewMsg = document.getElementById('reviewMsg');
+  document.querySelectorAll('.review-form').forEach(function (reviewForm) {
+    reviewForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const caseId = reviewForm.getAttribute('data-case-id');
+      const fd = new FormData(reviewForm);
+      const res = await fetch('/api/cases/' + caseId + '/review', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.ok) {
+        if (reviewMsg) reviewMsg.textContent = 'บันทึกผลรีวิวเคส #' + caseId + ' แล้ว';
+        setTimeout(function () { location.reload(); }, 700);
+      } else {
+        if (reviewMsg) reviewMsg.textContent = 'รีวิวไม่สำเร็จ: ' + (data.error || 'unknown');
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>
