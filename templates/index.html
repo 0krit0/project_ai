@@ -31,6 +31,9 @@
       <nav class="nav">
         <a href="/">วิเคราะห์</a>
         <a href="/cases">เคสงาน</a>
+        {% if nav_is_reviewer %}
+        <a href="/reviewer">รีวิวเคส</a>
+        {% endif %}
         <a href="/report/latest">รายงานล่าสุด</a>
         <a href="/history">ประวัติ</a>
         <a href="/profile">โปรไฟล์</a>
@@ -45,14 +48,26 @@
     <main class="main">
       <header class="header">
         <h1>วิเคราะห์ความเสียหายรถยนต์</h1>
-        <p>อัปโหลดภาพ 1 รูป เลือกตำแหน่งความเสียหาย และตรวจผลลัพธ์ AI พร้อมคำแนะนำซ่อมเบื้องต้น</p>
+        <p>ใส่รูป เลือกตำแหน่ง แล้วดูผลประเมินเบื้องต้นแบบเข้าใจง่าย</p>
       </header>
+      <section class="quick-flow">
+        <div class="quick-step"><b>1</b> เลือกตำแหน่ง</div>
+        <div class="quick-step"><b>2</b> อัปโหลดรูป</div>
+        <div class="quick-step"><b>3</b> ดูผลสรุป</div>
+      </section>
 
       <section class="workbench">
         <div class="grid">
           <article class="card soft">
           <h3>เริ่มวิเคราะห์</h3>
           <form method="post" enctype="multipart/form-data" id="analyzeForm">
+            {% if selected_case %}
+            <div class="notice ok" style="margin-bottom:10px">
+              กำลังวิเคราะห์ในเคส #{{ selected_case.id|case_code }} - {{ selected_case.title }}
+              <a class="btn ghost" style="margin-left:8px" href="/cases">เปลี่ยนเคส</a>
+            </div>
+            <input type="hidden" name="case_id" value="{{ selected_case.id }}">
+            {% endif %}
             <label for="part">ตำแหน่งความเสียหาย</label>
             <select id="part" name="part" required>
               <option value="กันชนหน้า" {% if selected_part == "กันชนหน้า" %}selected{% endif %}>กันชนหน้า</option>
@@ -65,8 +80,28 @@
             </select>
 
             <label for="file">รูปความเสียหาย</label>
-            <input id="file" type="file" name="file" accept="image/*" required>
-            <p class="helper">แนะนำภาพที่เห็นจุดเสียหายชัดเจน ไม่เบลอ และไม่มืดเกินไป</p>
+            <input id="file" type="file" name="file" accept="image/*" multiple>
+            <p class="helper">รองรับหลายมุมสูงสุด {{ max_multi_images or 4 }} รูปต่อครั้ง เพื่อให้ AI รวมผลและเช็คความสอดคล้อง</p>
+            {% if selected_case and selected_case.images %}
+            <label for="case_image_id">หรือเลือกรูปที่มีในเคสนี้</label>
+            <select id="case_image_id" name="case_image_id">
+              <option value="">-- เลือกรูปจากเคส --</option>
+              {% for ci in selected_case.images %}
+              <option value="{{ ci.id }}" {% if selected_case_image_id and ci.id == selected_case_image_id %}selected{% endif %}>
+                รูป #{{ ci.id }} | {{ ci.created_at }} | {{ ci.note or 'ไม่มีหมายเหตุ' }}
+              </option>
+              {% endfor %}
+            </select>
+            <p class="helper">ถ้าเลือกรูปจากเคส ไม่จำเป็นต้องอัปโหลดใหม่</p>
+            {% endif %}
+
+            <label for="summary_tone">โทนสรุปรายงาน</label>
+            <select id="summary_tone" name="summary_tone">
+              <option value="customer" {% if selected_summary_tone == "customer" %}selected{% endif %}>แบบทั่วไป (อ่านง่าย)</option>
+              <option value="technical" {% if selected_summary_tone == "technical" %}selected{% endif %}>แบบช่าง</option>
+              <option value="insurance" {% if selected_summary_tone == "insurance" %}selected{% endif %}>ประกัน</option>
+            </select>
+            <input id="ui_depth_mode" type="hidden" name="ui_depth_mode" value="{{ selected_ui_depth_mode or 'easy' }}">
 
             <div class="inline-actions">
               <button class="btn primary" type="submit" id="analyzeBtn">วิเคราะห์ทันที</button>
@@ -81,7 +116,7 @@
           </article>
           {% endif %}
 
-          {% if warning and "ไม่สามารถยืนยันว่าเป็นภาพความเสียหายของรถได้" in warning %}
+          {% if warning and ("ไม่สามารถยืนยันว่าเป็นภาพความเสียหายของรถได้" in warning or "อาจไม่ใช่ภาพรถ" in warning) %}
           <div id="nonCarModal" class="modal-backdrop">
             <div class="modal-card">
               <h3>แจ้งเตือน</h3>
@@ -117,10 +152,95 @@
             </section>
 
             {% if policy %}
-            <section class="policy-box {{ policy.flag }}">
+            <section class="policy-box {{ policy.flag }} advanced-section">
               <div class="label">นโยบายการตีความความมั่นใจ</div>
               <div class="policy-title">{{ policy.tier }}</div>
               <p class="helper">{{ policy.advice }}</p>
+            </section>
+            {% endif %}
+
+            {% if domain_gate and domain_gate.mode == "model" %}
+            <section class="quality-box advanced-section">
+              <div class="label">การตรวจว่าเป็นภาพรถ</div>
+              <ul class="advice-list">
+                <li>ความน่าจะเป็นว่าเป็นรถ: {{ (domain_gate.car_probability * 100)|round(2) }}%</li>
+                <li>เกณฑ์ขั้นต่ำ: {{ (domain_gate.min_car_probability * 100)|round(0) }}%</li>
+              </ul>
+            </section>
+            {% endif %}
+
+            {% if ai_insights %}
+            <section class="evidence-box advanced-section">
+              <div class="label">สรุปความน่าเชื่อถือของผล</div>
+              <div class="kpis profile-kpis">
+                <div class="kpi">
+                  <div class="label">ความน่าเชื่อถือ</div>
+                  <div class="value">{{ ai_insights.reliability_score }}%</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">ระดับความรุนแรง</div>
+                  <div class="value">{{ ai_insights.severity_index }}/100</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">ความเร่งด่วน</div>
+                  <div class="value">{{ ai_insights.urgency_label }}</div>
+                </div>
+              </div>
+              {% if ai_insights.actions %}
+              <ul class="advice-list" style="margin-top:8px">
+                {% for action in ai_insights.actions %}
+                <li>{{ action }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </section>
+            {% endif %}
+
+            <div class="result-mode-switch">
+              <button id="easyModeBtn" class="btn ghost {% if (selected_ui_depth_mode or 'easy') == 'easy' %}is-active{% endif %}" type="button">โหมดง่าย</button>
+              <button id="proModeBtn" class="btn ghost {% if (selected_ui_depth_mode or 'easy') == 'pro' %}is-active{% endif %}" type="button">โหมดช่าง</button>
+              <button id="engineerModeBtn" class="btn ghost {% if (selected_ui_depth_mode or 'easy') == 'engineer' %}is-active{% endif %}" type="button">โหมดวิศวกร</button>
+              <button id="advToggleBtn" class="btn ghost" type="button">ดูเพิ่มเติม</button>
+            </div>
+            <span class="helper">โหมดง่าย = พื้นฐาน | โหมดช่าง = ลึกขึ้น | โหมดวิศวกร = ลึกสุดพร้อม diagnostics</span>
+
+            {% if multi_angle %}
+            <section class="quality-box advanced-section">
+              <div class="label">ความสอดคล้องของผลจากหลายรูป</div>
+              <div class="helper">
+                จำนวนภาพ {{ multi_angle.image_count }} | Consistency {{ multi_angle.consistency_score }}% | Agreement {{ (multi_angle.agreement_ratio * 100)|round(2) }}%
+              </div>
+              {% if multi_angle.angles %}
+              <ul class="advice-list">
+                {% for a in multi_angle.angles %}
+                <li>ภาพที่ {{ a.index }}: {{ a.top_label }} ({{ a.top_score }}%)</li>
+                {% endfor %}
+              </ul>
+              <div class="angle-chart">
+                {% for a in multi_angle.angles %}
+                <div class="angle-row">
+                  <div class="angle-head">ภาพ {{ a.index }}</div>
+                  <div class="angle-bars">
+                    <div class="angle-bar">
+                      <span class="tag">low</span>
+                      <div class="evidence-meter"><span data-score="{{ a.scores.low }}"></span></div>
+                      <span class="mono">{{ a.scores.low }}%</span>
+                    </div>
+                    <div class="angle-bar">
+                      <span class="tag">medium</span>
+                      <div class="evidence-meter"><span data-score="{{ a.scores.medium }}"></span></div>
+                      <span class="mono">{{ a.scores.medium }}%</span>
+                    </div>
+                    <div class="angle-bar">
+                      <span class="tag">high</span>
+                      <div class="evidence-meter"><span data-score="{{ a.scores.high }}"></span></div>
+                      <span class="mono">{{ a.scores.high }}%</span>
+                    </div>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+              {% endif %}
             </section>
             {% endif %}
 
@@ -143,8 +263,74 @@
               ประมาณค่าใช้จ่ายเบื้องต้น: {{ "{:,}".format(est_cost_min or 0) }} - {{ "{:,}".format(est_cost_max or 0) }} บาท
             </section>
 
+            {% if cost_breakdown %}
+            <section class="cost-breakdown-box">
+              <div class="cost-breakdown-head">
+                <div>
+                  <div class="label">ประมาณราคาซ่อมเชิงลึก</div>
+                  <div class="value">{{ "{:,}".format(cost_breakdown.expected_cost or expected_cost or 0) }} บาท</div>
+                  <div class="helper">ช่วงราคา: {{ "{:,}".format(cost_breakdown.cost_min or est_cost_min or 0) }} - {{ "{:,}".format(cost_breakdown.cost_max or est_cost_max or 0) }} บาท</div>
+                </div>
+                <button
+                  id="toggleCostDetailsBtn"
+                  class="btn ghost js-cost-toggle"
+                  type="button"
+                  data-open-label="ดูรายละเอียดราคา"
+                  data-close-label="ซ่อนรายละเอียด"
+                  data-target="mainCostBreakdownPanel"
+                  aria-expanded="false"
+                >ดูรายละเอียดราคา</button>
+              </div>
+
+              <div id="mainCostBreakdownPanel" class="cost-breakdown-panel" hidden>
+                <div class="cost-scenarios">
+                  <div class="scenario-card">
+                    <div class="label">ประหยัด</div>
+                    <div class="value">{{ "{:,}".format(cost_breakdown.scenarios.economy or 0) }} บาท</div>
+                  </div>
+                  <div class="scenario-card">
+                    <div class="label">แผนมาตรฐาน</div>
+                    <div class="value">{{ "{:,}".format(cost_breakdown.scenarios.planned or 0) }} บาท</div>
+                  </div>
+                  <div class="scenario-card">
+                    <div class="label">ซ่อมด่วน</div>
+                    <div class="value">{{ "{:,}".format(cost_breakdown.scenarios.fast_track or 0) }} บาท</div>
+                  </div>
+                  <div class="scenario-card">
+                    <div class="label">กรณีสูงสุด</div>
+                    <div class="value">{{ "{:,}".format(cost_breakdown.scenarios.worst_case or 0) }} บาท</div>
+                  </div>
+                </div>
+
+                {% if cost_breakdown["items"] %}
+                <ul class="cost-item-list">
+                  {% for item in cost_breakdown["items"] %}
+                  <li>
+                    <div class="cost-item-top">
+                      <span class="cost-item-label">{{ item.label }}</span>
+                      <span class="mono">{{ item.ratio_pct }}%</span>
+                    </div>
+                    <div class="evidence-meter"><span data-score="{{ item.ratio_pct }}"></span></div>
+                    <div class="helper">{{ "{:,}".format(item.cost_min) }} - {{ "{:,}".format(item.cost_max) }} บาท</div>
+                  </li>
+                  {% endfor %}
+                </ul>
+                {% endif %}
+
+                {% if cost_breakdown.factors %}
+                <div class="helper"><b>สมมติฐานราคา:</b></div>
+                <ul class="advice-list">
+                  {% for factor in cost_breakdown.factors %}
+                  <li>{{ factor }}</li>
+                  {% endfor %}
+                </ul>
+                {% endif %}
+              </div>
+            </section>
+            {% endif %}
+
             {% if assessment_options %}
-            <section class="evidence-box">
+            <section class="evidence-box advanced-section engineer-section">
               <div class="label">ผลประเมินหลายระดับ (Multi-Outcome)</div>
               <div class="helper">ช่องว่างคะแนนอันดับ 1-2: {{ score_gap }}% | ความไม่แน่นอน: {{ uncertainty }}</div>
               <ul class="evidence-list">
@@ -157,6 +343,26 @@
                 <li style="grid-template-columns: 1fr;">
                   <span class="helper">ค่าใช้จ่าย: {{ "{:,}".format(opt.cost_min) }} - {{ "{:,}".format(opt.cost_max) }} บาท | {{ opt.repair }}</span>
                 </li>
+                {% if opt.cost_breakdown %}
+                <li style="grid-template-columns: 1fr;">
+                  <button
+                    class="btn ghost compact js-cost-toggle"
+                    type="button"
+                    data-open-label="ดูเพิ่ม"
+                    data-close-label="ซ่อน"
+                    data-target="optCostBreakdown{{ loop.index }}"
+                    aria-expanded="false"
+                  >ดูเพิ่ม</button>
+                  <div id="optCostBreakdown{{ loop.index }}" class="mini-cost-breakdown" hidden>
+                    {% for item in opt.cost_breakdown["items"] %}
+                    <div class="mini-cost-row">
+                      <span>{{ item.label }}</span>
+                      <span class="mono">{{ "{:,}".format(item.cost_min) }}-{{ "{:,}".format(item.cost_max) }}</span>
+                    </div>
+                    {% endfor %}
+                  </div>
+                </li>
+                {% endif %}
                 {% endfor %}
               </ul>
               <div class="helper">ค่าใช้จ่ายคาดหวังแบบถ่วงน้ำหนัก: <b>{{ "{:,}".format(expected_cost or 0) }} บาท</b></div>
@@ -164,18 +370,23 @@
             {% endif %}
 
             {% if quality_notes %}
-            <section class="quality-box">
+            <section class="quality-box advanced-section engineer-section">
               <div class="label">ผลตรวจคุณภาพภาพก่อนวิเคราะห์</div>
               <ul class="advice-list">
                 {% for note in quality_notes %}
                 <li>{{ note }}</li>
                 {% endfor %}
               </ul>
+              {% if quality_metrics %}
+              <div class="helper">
+                Quality Score {{ quality_metrics.quality_score }} | Resolution {{ quality_metrics.resolution }} | Brightness {{ quality_metrics.brightness }} | Sharpness {{ quality_metrics.sharpness }}
+              </div>
+              {% endif %}
             </section>
             {% endif %}
 
             {% if evidence_items %}
-            <section class="evidence-box">
+            <section class="evidence-box advanced-section engineer-section">
               <div class="label">หลักฐานประกอบการตัดสินใจ (Top-{{ top_k_outcomes or evidence_items|length }})</div>
               <ul class="evidence-list">
                 {% for item in evidence_items %}
@@ -190,20 +401,86 @@
             {% endif %}
 
             {% if heatmap_path %}
-            <section class="heatmap-box">
+            <section class="heatmap-box advanced-section engineer-section">
               <div class="label">พื้นที่ที่โมเดลให้ความสำคัญ (Explainability)</div>
               <img class="heatmap-image" src="/{{ heatmap_path }}" alt="heatmap">
             </section>
             {% endif %}
 
+            {% if calibration_note %}
+            <section class="notice ok">
+              {{ calibration_note }}
+            </section>
+            {% endif %}
+
             <section class="snapshot-box">
-              <div class="label">สรุปผลแบบย่อ</div>
+              <div class="label">สรุปผลแบบอ่านง่าย</div>
               <div id="analysisSnapshot" class="snapshot-text">{{ selected_part }} | {{ result }} | {{ confidence }}% | {{ trust }}</div>
+              {% if incident_summaries %}
+              <div class="summary-tones">
+                <button class="btn ghost summary-tone-btn {% if selected_summary_tone == 'customer' %}is-active{% endif %}" type="button" data-tone="customer">แบบทั่วไป</button>
+                <button class="btn ghost summary-tone-btn {% if selected_summary_tone == 'technical' %}is-active{% endif %}" type="button" data-tone="technical">แบบช่าง</button>
+                <button class="btn ghost summary-tone-btn {% if selected_summary_tone == 'insurance' %}is-active{% endif %}" type="button" data-tone="insurance">แบบประกัน</button>
+              </div>
+              <p id="incidentSummaryText" class="helper" style="margin-top:8px">{{ incident_summary }}</p>
+              <script id="incidentSummariesJson" type="application/json">{{ incident_summaries|tojson }}</script>
+              {% elif incident_summary %}
+              <p id="incidentSummaryText" class="helper" style="margin-top:8px">{{ incident_summary }}</p>
+              {% endif %}
               {% if model_version %}
               <p class="helper">โมเดลที่ใช้: <span class="mono">{{ model_version }}</span></p>
               {% endif %}
               <button id="copySnapshotBtn" class="btn ghost" type="button">คัดลอกสรุป</button>
             </section>
+
+            {% if diagnostics %}
+            <section class="evidence-box advanced-section engineer-section">
+              <div class="label">โหมดช่าง: Diagnostics เชิงลึก</div>
+              <div class="kpis profile-kpis">
+                <div class="kpi">
+                  <div class="label">Score Gap (อันดับ 1-2)</div>
+                  <div class="value">{{ score_gap }}%</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">Prediction Entropy</div>
+                  <div class="value">{{ prediction_entropy }}</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">Uncertainty</div>
+                  <div class="value">{{ uncertainty }}</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">Non-car Rule Risk</div>
+                  <div class="value">{{ diagnostics.non_car_rule_risk }}/{{ diagnostics.non_car_rule_block_threshold }}</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">TTA Dispersion</div>
+                  <div class="value">{{ diagnostics.tta_dispersion }}</div>
+                </div>
+              </div>
+              {% if diagnostics.manual_review_reasons %}
+              <div class="helper" style="margin-top:8px"><b>เหตุผลที่ส่งรีวิว:</b></div>
+              <ul class="advice-list">
+                {% for reason in diagnostics.manual_review_reasons %}
+                <li>{{ reason }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+              {% if diagnostics.thresholds %}
+              <div class="helper" style="margin-top:8px">
+                Thresholds | Manual Review: gap < {{ diagnostics.thresholds.manual_review_score_gap }}, entropy > {{ diagnostics.thresholds.manual_review_max_entropy }} |
+                TTA dispersion > {{ diagnostics.thresholds.manual_review_max_tta_dispersion }} |
+                Non-car hard block car prob <= {{ diagnostics.thresholds.non_car_hard_block_max_car_probability }}
+              </div>
+              {% endif %}
+            </section>
+            {% endif %}
+
+            {% if needs_manual_review %}
+            <section class="caution-box">
+              ระบบส่งผลนี้เข้า reviewer workflow แล้ว{% if review_case_id %} (Case #{{ review_case_id }}){% endif %} เพื่อให้ผู้ตรวจยืนยันผลอีกครั้ง
+            </section>
+            {% endif %}
           </div>
 
           <hr class="section-divider">
@@ -240,42 +517,43 @@
             {% endif %}
           </article>
 
-          <article class="card rail-card">
-            <h3>ภาพรวมใช้งาน</h3>
-            <div class="kpis">
-              <div class="kpi">
-                <div class="label">วิเคราะห์ทั้งหมด</div>
-                <div class="value">{{ quick_stats.total }} ครั้ง</div>
-              </div>
-              <div class="kpi">
-                <div class="label">ความมั่นใจเฉลี่ย</div>
-                <div class="value">{{ quick_stats.avg_conf }}%</div>
-              </div>
-              <div class="kpi">
-                <div class="label">ครั้งล่าสุด</div>
-                <div class="value">{{ quick_stats.last_time }}</div>
-              </div>
-            </div>
-          </article>
-
-          <article class="card rail-card">
-            <h3>ล่าสุด 3 รายการ</h3>
-            {% if recent_records %}
-            <ul class="recent-list">
-              {% for r in recent_records %}
-              <li>
-                <div>
-                  <div class="recent-main">{{ r.part }} <span class="badge {{ r.result }}">{{ r.result }}</span></div>
-                  <div class="helper">ความมั่นใจ {{ r.confidence }}%</div>
+          <details class="card rail-card compact-details">
+            <summary>ข้อมูลเพิ่มเติม (สถิติ/ประวัติล่าสุด)</summary>
+            <div class="compact-content">
+              <h3>ภาพรวมใช้งาน</h3>
+              <div class="kpis">
+                <div class="kpi">
+                  <div class="label">วิเคราะห์ทั้งหมด</div>
+                  <div class="value">{{ quick_stats.total }} ครั้ง</div>
                 </div>
-                <div class="recent-time">{{ r.datetime }}</div>
-              </li>
-              {% endfor %}
-            </ul>
-            {% else %}
-            <div class="notice empty">ยังไม่มีข้อมูลการวิเคราะห์</div>
-            {% endif %}
-          </article>
+                <div class="kpi">
+                  <div class="label">ความมั่นใจเฉลี่ย</div>
+                  <div class="value">{{ quick_stats.avg_conf }}%</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">ครั้งล่าสุด</div>
+                  <div class="value">{{ quick_stats.last_time }}</div>
+                </div>
+              </div>
+
+              <h3 style="margin-top:12px">ล่าสุด 3 รายการ</h3>
+              {% if recent_records %}
+              <ul class="recent-list">
+                {% for r in recent_records %}
+                <li>
+                  <div>
+                    <div class="recent-main">{{ r.part }} <span class="badge {{ r.result }}">{{ r.result }}</span></div>
+                    <div class="helper">ความมั่นใจ {{ r.confidence }}%</div>
+                  </div>
+                  <div class="recent-time">{{ r.datetime }}</div>
+                </li>
+                {% endfor %}
+              </ul>
+              {% else %}
+              <div class="notice empty">ยังไม่มีข้อมูลการวิเคราะห์</div>
+              {% endif %}
+            </div>
+          </details>
         </aside>
       </section>
     </main>
@@ -291,9 +569,27 @@
   const previewHint = document.getElementById('previewHint');
   const copySnapshotBtn = document.getElementById('copySnapshotBtn');
   const analysisSnapshot = document.getElementById('analysisSnapshot');
+  const caseImageSelect = document.getElementById('case_image_id');
+  const incidentSummaryText = document.getElementById('incidentSummaryText');
+  const incidentSummariesJsonEl = document.getElementById('incidentSummariesJson');
+  const summaryToneSelect = document.getElementById('summary_tone');
+  const uiDepthModeInput = document.getElementById('ui_depth_mode');
+  const easyModeBtn = document.getElementById('easyModeBtn');
+  const proModeBtn = document.getElementById('proModeBtn');
+  const engineerModeBtn = document.getElementById('engineerModeBtn');
+  const advToggleBtn = document.getElementById('advToggleBtn');
+  const advSections = Array.from(document.querySelectorAll('.advanced-section'));
+  const engineerSections = Array.from(document.querySelectorAll('.engineer-section'));
 
   if (analyzeForm && analyzeBtn) {
-    analyzeForm.addEventListener('submit', function () {
+    analyzeForm.addEventListener('submit', function (e) {
+      const hasUpload = fileInput && fileInput.files && fileInput.files.length > 0;
+      const hasCaseImage = caseImageSelect && caseImageSelect.value;
+      if (!hasUpload && !hasCaseImage) {
+        e.preventDefault();
+        alert('กรุณาเลือกรูปที่จะวิเคราะห์ (อัปโหลดใหม่หรือเลือกจากเคส)');
+        return;
+      }
       analyzeBtn.disabled = true;
       analyzeBtn.textContent = 'กำลังวิเคราะห์...';
     });
@@ -316,7 +612,8 @@
   if (copySnapshotBtn && analysisSnapshot) {
     copySnapshotBtn.addEventListener('click', async function () {
       try {
-        await navigator.clipboard.writeText(analysisSnapshot.textContent.trim());
+        const summaryLine = incidentSummaryText ? ('\n' + incidentSummaryText.textContent.trim()) : '';
+        await navigator.clipboard.writeText(analysisSnapshot.textContent.trim() + summaryLine);
         copySnapshotBtn.textContent = 'คัดลอกแล้ว';
         setTimeout(function () {
           copySnapshotBtn.textContent = 'คัดลอกสรุป';
@@ -339,6 +636,101 @@
       }
     });
   }
+
+  if (advSections.length) {
+    const modeOrder = ['easy', 'pro', 'engineer'];
+    const modeStorageKey = 'analysis_ui_depth_mode:{{ (session.user.name if session.get("user") else "guest")|replace("'", "_") }}';
+    const savedMode = localStorage.getItem(modeStorageKey);
+    let uiMode = (savedMode && modeOrder.includes(savedMode))
+      ? savedMode
+      : '{{ selected_ui_depth_mode or "easy" }}';
+    if (!modeOrder.includes(uiMode)) uiMode = 'easy';
+
+    const syncAdvanced = function () {
+      advSections.forEach(function (el) {
+        el.style.display = uiMode === 'easy' ? 'none' : '';
+      });
+      engineerSections.forEach(function (el) {
+        el.style.display = uiMode === 'engineer' ? '' : 'none';
+      });
+      if (advToggleBtn) {
+        advToggleBtn.textContent = uiMode === 'easy' ? 'ดูเพิ่มเติม' : (uiMode === 'pro' ? 'ลึกขึ้นอีก' : 'กลับโหมดง่าย');
+      }
+      if (easyModeBtn) easyModeBtn.classList.toggle('is-active', uiMode === 'easy');
+      if (proModeBtn) proModeBtn.classList.toggle('is-active', uiMode === 'pro');
+      if (engineerModeBtn) engineerModeBtn.classList.toggle('is-active', uiMode === 'engineer');
+      if (uiDepthModeInput) uiDepthModeInput.value = uiMode;
+      localStorage.setItem(modeStorageKey, uiMode);
+    };
+    syncAdvanced();
+
+    if (easyModeBtn) {
+      easyModeBtn.addEventListener('click', function () {
+        uiMode = 'easy';
+        syncAdvanced();
+      });
+    }
+    if (proModeBtn) {
+      proModeBtn.addEventListener('click', function () {
+        uiMode = 'pro';
+        syncAdvanced();
+      });
+    }
+    if (engineerModeBtn) {
+      engineerModeBtn.addEventListener('click', function () {
+        uiMode = 'engineer';
+        syncAdvanced();
+      });
+    }
+    if (advToggleBtn) {
+      advToggleBtn.addEventListener('click', function () {
+        const idx = modeOrder.indexOf(uiMode);
+        uiMode = modeOrder[(idx + 1) % modeOrder.length];
+        syncAdvanced();
+      });
+    }
+  } else if (advToggleBtn) {
+    advToggleBtn.style.display = 'none';
+  }
+
+  let incidentSummaries = null;
+  if (incidentSummariesJsonEl) {
+    try {
+      incidentSummaries = JSON.parse(incidentSummariesJsonEl.textContent || '{}');
+    } catch (err) {
+      incidentSummaries = null;
+    }
+  }
+  document.querySelectorAll('.summary-tone-btn[data-tone]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const tone = btn.getAttribute('data-tone');
+      if (!tone || !incidentSummaries || !incidentSummaryText) return;
+      if (!incidentSummaries[tone]) return;
+      incidentSummaryText.textContent = incidentSummaries[tone];
+      if (summaryToneSelect) summaryToneSelect.value = tone;
+      document.querySelectorAll('.summary-tone-btn').forEach(function (x) { x.classList.remove('is-active'); });
+      btn.classList.add('is-active');
+    });
+  });
+
+  document.querySelectorAll('.js-cost-toggle[data-target]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const targetId = btn.getAttribute('data-target');
+      if (!targetId) return;
+      const panel = document.getElementById(targetId);
+      if (!panel) return;
+      const willOpen = panel.hasAttribute('hidden');
+      if (willOpen) {
+        panel.removeAttribute('hidden');
+      } else {
+        panel.setAttribute('hidden', 'hidden');
+      }
+      btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      const openLabel = btn.getAttribute('data-open-label') || 'ดูเพิ่ม';
+      const closeLabel = btn.getAttribute('data-close-label') || 'ซ่อน';
+      btn.textContent = willOpen ? closeLabel : openLabel;
+    });
+  });
 
   document.querySelectorAll('.evidence-meter > span[data-score]').forEach(function (el) {
     const score = Number(el.getAttribute('data-score') || 0);

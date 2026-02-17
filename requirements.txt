@@ -4,3 +4,4 @@ numpy==1.26.4
 Pillow==10.4.0
 tensorflow-cpu==2.16.2
 redis==5.0.8
+waitress==3.0.0
