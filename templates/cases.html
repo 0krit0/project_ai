@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>เคสงาน | CarDamage AI</title>
+<title>เคสงาน | AutoScope AI</title>
 <link rel="stylesheet" href="/static/ui.css">
 </head>
 <body>
 <div class="page">
   <aside class="sidebar">
-    <div class="brand">CarDamage AI</div>
+    <div class="brand">AutoScope AI</div>
     <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
     <nav class="nav">
       <a href="/">วิเคราะห์</a>
@@ -32,11 +32,14 @@
       <h1>จัดการเคสงาน</h1>
       <p>สร้างและติดตามเคสภาคสนาม พร้อมแนบภาพหลายมุม และทำงานต่อเนื่องไปหน้า Analyze ได้ทันที</p>
     </header>
+    {% if toast %}
+    <div class="toast {{ toast.level }}">{{ toast.text }}</div>
+    {% endif %}
 
     <section class="card soft">
       <h3>สร้างเคสใหม่</h3>
       <form id="caseForm">
-        <label for="title">หัวข้อเคส</label>
+        <label for="title">หัวข้อเคส *</label>
         <input id="title" name="title" type="text" required placeholder="เช่น เคส Toyota Camry 2020">
         <label for="vehicle_info">ข้อมูลรถ / ป้ายทะเบียน</label>
         <input id="vehicle_info" name="vehicle_info" type="text" placeholder="เช่น ทะเบียน กก1234, สีขาว">
@@ -62,6 +65,13 @@
 
         <label for="upload_note">หมายเหตุรูป</label>
         <input id="upload_note" name="note" type="text" placeholder="เช่น มุมซ้ายหน้า / รอยบุบชัดเจน">
+        <label for="upload_image_type">ประเภทรูป</label>
+        <select id="upload_image_type" name="image_type">
+          <option value="">-- เลือกประเภท (ไม่บังคับ) --</option>
+          <option value="มุมหน้า">มุมหน้า</option>
+          <option value="มุมข้าง">มุมข้าง</option>
+          <option value="ระยะใกล้">ระยะใกล้</option>
+        </select>
 
         <button class="btn warm" type="submit">อัปโหลดรูปเข้าเคส</button>
       </form>
@@ -129,9 +139,12 @@
           <thead>
             <tr>
               <th>ID</th>
+              <th>โปรด</th>
               <th>หัวข้อ</th>
               <th>ข้อมูลรถ</th>
               <th>สถานะ</th>
+              <th>จำนวนรูป</th>
+              <th>Confidence ล่าสุด</th>
               <th>ผลเดิม</th>
               <th>ผลยืนยัน</th>
               <th>หมายเหตุ reviewer</th>
@@ -143,15 +156,52 @@
             {% for c in cases %}
             <tr>
               <td data-label="ID">#{{ c.id|case_code }}</td>
-              <td data-label="หัวข้อ">{{ c.title }}</td>
+              <td data-label="โปรด">
+                <button
+                  class="btn {{ 'primary' if c.is_favorite else 'ghost' }} favorite-btn"
+                  type="button"
+                  data-case-id="{{ c.id }}"
+                  data-is-favorite="{{ 1 if c.is_favorite else 0 }}"
+                >
+                  {{ '★' if c.is_favorite else '☆' }}
+                </button>
+              </td>
+              <td data-label="หัวข้อ">
+                {{ '★ ' if c.is_favorite else '' }}{{ c.title }}
+              </td>
               <td data-label="ข้อมูลรถ">{{ c.vehicle_info or '-' }}</td>
-              <td data-label="สถานะ">{{ c.status }}</td>
+              <td data-label="สถานะ">
+                {% if c.status == 'open' %}
+                <span class="badge status-open">Open</span>
+                {% elif c.status == 'needs_review' %}
+                <span class="badge status-review">In Review</span>
+                {% elif c.status == 'reviewed' %}
+                <span class="badge status-completed">Completed</span>
+                {% elif c.status == 'rejected' %}
+                <span class="badge status-rejected">Rejected</span>
+                {% else %}
+                <span class="badge">{{ c.status }}</span>
+                {% endif %}
+              </td>
+              <td data-label="จำนวนรูป">{{ c.image_count or 0 }}</td>
+              <td data-label="Confidence ล่าสุด">
+                {% if c.predicted_confidence is not none %}
+                {{ "%.2f"|format(c.predicted_confidence) }}%
+                {% else %}
+                -
+                {% endif %}
+              </td>
               <td data-label="ผลเดิม">{{ c.predicted_result or '-' }}</td>
               <td data-label="ผลยืนยัน">{{ c.final_result or '-' }}</td>
               <td data-label="หมายเหตุ reviewer">{{ c.reviewer_note or '-' }}</td>
               <td data-label="ดำเนินการ">
                 <a class="btn ghost" href="/cases/{{ c.id }}">ดูรายละเอียด</a>
+                {% if (c.image_count or 0) > 0 %}
                 <a class="btn ghost" href="/?case_id={{ c.id }}">วิเคราะห์เคสนี้</a>
+                {% else %}
+                <button class="btn ghost" type="button" disabled title="ต้องมีรูปในเคสก่อน">วิเคราะห์เคสนี้</button>
+                {% endif %}
+                <button class="btn warm case-delete-btn" type="button" data-case-id="{{ c.id }}">ลบเคส</button>
               </td>
               <td data-label="อัปเดตล่าสุด">{{ c.updated_at }}</td>
             </tr>
@@ -173,6 +223,7 @@
   if (form) {
     form.addEventListener('submit', async function (e) {
       e.preventDefault();
+      if (!form.reportValidity()) return;
       const fd = new FormData(form);
       const res = await fetch('/api/cases', { method: 'POST', body: fd });
       const data = await res.json();
@@ -181,7 +232,11 @@
         msg.textContent = 'สร้างเคสสำเร็จ #' + code + ' กำลังเปิดหน้ารายละเอียดเคส...';
         setTimeout(function () { window.location.href = '/cases/' + data.case_id; }, 500);
       } else {
-        msg.textContent = 'สร้างเคสไม่สำเร็จ: ' + (data.error || 'unknown');
+        if (data.error === 'title_required') {
+          msg.textContent = 'กรุณากรอกหัวข้อเคส';
+        } else {
+          msg.textContent = 'สร้างเคสไม่สำเร็จ: ' + (data.error || 'unknown');
+        }
       }
     });
   }
@@ -194,6 +249,7 @@
       const caseId = document.getElementById('upload_case_id').value;
       const files = document.getElementById('upload_files').files;
       const note = document.getElementById('upload_note').value || '';
+      const imageType = document.getElementById('upload_image_type').value || '';
       if (!caseId || !files || !files.length) {
         if (uploadMsg) uploadMsg.textContent = 'กรุณาเลือกเคสและรูปก่อนอัปโหลด';
         return;
@@ -204,6 +260,7 @@
         const fd = new FormData();
         fd.append('file', files[i]);
         fd.append('note', note);
+        fd.append('image_type', imageType);
         const res = await fetch('/api/cases/' + caseId + '/images', { method: 'POST', body: fd });
         const data = await res.json();
         if (data.ok) okCount += 1;
@@ -214,6 +271,55 @@
   }
 
   const reviewMsg = document.getElementById('reviewMsg');
+  document.querySelectorAll('.case-delete-btn').forEach(function (deleteBtn) {
+    deleteBtn.addEventListener('click', async function () {
+      const caseId = deleteBtn.getAttribute('data-case-id');
+      if (!caseId) return;
+      if (!confirm('ยืนยันลบเคส #' + String(caseId).padStart(6, '0') + ' ?')) return;
+      deleteBtn.disabled = true;
+      try {
+        const res = await fetch('/api/cases/' + caseId + '/delete', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          location.reload();
+        } else if (msg) {
+          msg.textContent = 'ลบเคสไม่สำเร็จ: ' + (data.error || 'unknown');
+        }
+      } finally {
+        deleteBtn.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll('.favorite-btn').forEach(function (favoriteBtn) {
+    favoriteBtn.addEventListener('click', async function () {
+      const caseId = favoriteBtn.getAttribute('data-case-id');
+      if (!caseId) return;
+      favoriteBtn.disabled = true;
+      try {
+        const res = await fetch('/api/cases/' + caseId + '/favorite', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          const isFav = !!data.is_favorite;
+          favoriteBtn.dataset.isFavorite = isFav ? '1' : '0';
+          favoriteBtn.classList.remove('primary', 'ghost');
+          favoriteBtn.classList.add(isFav ? 'primary' : 'ghost');
+          favoriteBtn.textContent = isFav ? '★' : '☆';
+          const row = favoriteBtn.closest('tr');
+          if (row) {
+            const titleCell = row.querySelector('td[data-label=\"หัวข้อ\"]');
+            if (titleCell) {
+              const cleanTitle = titleCell.textContent.replace(/^★\s*/, '').trim();
+              titleCell.textContent = (isFav ? '★ ' : '') + cleanTitle;
+            }
+          }
+        }
+      } finally {
+        favoriteBtn.disabled = false;
+      }
+    });
+  });
+
   document.querySelectorAll('.review-form').forEach(function (reviewForm) {
     reviewForm.addEventListener('submit', async function (e) {
       e.preventDefault();
@@ -234,3 +340,4 @@
 </script>
 </body>
 </html>
+

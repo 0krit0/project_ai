@@ -1,15 +1,15 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="th">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>รายละเอียดเคส | CarDamage AI</title>
+<title>รายละเอียดเคส | AutoScope AI</title>
 <link rel="stylesheet" href="/static/ui.css">
 </head>
 <body>
 <div class="page">
   <aside class="sidebar">
-    <div class="brand">CarDamage AI</div>
+    <div class="brand">AutoScope AI</div>
     <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
     <nav class="nav">
       <a href="/">วิเคราะห์</a>
@@ -34,8 +34,29 @@
       <div class="inline-actions">
         <a class="btn ghost" href="/cases">กลับหน้าเคส</a>
         <a class="btn primary" href="/?case_id={{ case_data.id }}">วิเคราะห์เคสนี้</a>
+        <button class="btn {% if case_data.is_favorite %}primary{% else %}ghost{% endif %}" type="button" id="favoriteToggleBtn" data-case-id="{{ case_data.id }}" data-is-favorite="{{ 1 if case_data.is_favorite else 0 }}">
+          {% if case_data.is_favorite %}ลบออกจากรายการโปรด{% else %}บันทึกเป็นรายการโปรด{% endif %}
+        </button>
       </div>
     </header>
+    {% if toast %}
+    <div class="toast {{ toast.level }}">{{ toast.text }}</div>
+    {% endif %}
+
+    <section class="card soft">
+      <h3>ส่งสรุปเคสเข้าอีเมล</h3>
+      <form method="post" action="/cases/{{ case_data.id }}/email-summary">
+        <label for="case_summary_tone">โหมดสรุป</label>
+        <select id="case_summary_tone" name="summary_tone" required>
+          <option value="customer">แบบทั่วไป</option>
+          <option value="technical">แบบช่าง</option>
+          <option value="insurance">แบบประกัน</option>
+        </select>
+        <div class="inline-actions" style="margin-top:10px">
+          <button class="btn warm" type="submit">ส่งสรุปเคสนี้เข้าอีเมล</button>
+        </div>
+      </form>
+    </section>
 
     <section class="card soft">
       <h3>แนบรูปเพิ่ม</h3>
@@ -95,6 +116,30 @@
   const addMsg = document.getElementById('addMsg');
   const delMsg = document.getElementById('delMsg');
   const caseId = '{{ case_data.id }}';
+  const favoriteBtn = document.getElementById('favoriteToggleBtn');
+
+  const syncFavoriteUi = function (isFavorite) {
+    if (!favoriteBtn) return;
+    favoriteBtn.dataset.isFavorite = isFavorite ? '1' : '0';
+    favoriteBtn.textContent = isFavorite ? 'ลบออกจากรายการโปรด' : 'บันทึกเป็นรายการโปรด';
+    favoriteBtn.classList.remove('primary', 'ghost');
+    favoriteBtn.classList.add(isFavorite ? 'primary' : 'ghost');
+  };
+
+  if (favoriteBtn) {
+    favoriteBtn.addEventListener('click', async function () {
+      favoriteBtn.disabled = true;
+      try {
+        const res = await fetch('/api/cases/' + caseId + '/favorite', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          syncFavoriteUi(!!data.is_favorite);
+        }
+      } finally {
+        favoriteBtn.disabled = false;
+      }
+    });
+  }
 
   if (addForm) {
     addForm.addEventListener('submit', async function (e) {
@@ -138,3 +183,4 @@
 </script>
 </body>
 </html>
+

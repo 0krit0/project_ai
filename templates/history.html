@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ประวัติ | CarDamage AI</title>
+<title>ประวัติ | AutoScope AI</title>
 <link rel="stylesheet" href="/static/ui.css">
 </head>
 <body>
 <div class="page">
   <aside class="sidebar">
-    <div class="brand">CarDamage AI</div>
+    <div class="brand">AutoScope AI</div>
     <div class="sidebar-profile">
       {% if session.get("user") and session.user.avatar_path %}
       <img class="sidebar-avatar" src="/{{ session.user.avatar_path }}" alt="profile avatar">
@@ -38,8 +38,27 @@
   <main class="main">
     <header class="header">
       <h1>ประวัติการวิเคราะห์</h1>
-      <p>สรุปรายการวิเคราะห์ล่าสุดของผู้ใช้งาน พร้อมผลและระดับความเชื่อมั่น</p>
+      <p>ติดตามผลวิเคราะห์ย้อนหลัง พร้อมกรอง คัดเรียง และเปิดดูรายละเอียดรายรายการ</p>
     </header>
+
+    <section class="kpis profile-kpis" style="margin-bottom:12px">
+      <div class="kpi">
+        <div class="label">วิเคราะห์ทั้งหมด</div>
+        <div class="value">{{ summary.total }}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">High</div>
+        <div class="value">{{ summary.high }}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Medium</div>
+        <div class="value">{{ summary.medium }}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Low</div>
+        <div class="value">{{ summary.low }}</div>
+      </div>
+    </section>
 
     <section class="card soft">
       <form method="get" class="filter-form">
@@ -62,6 +81,14 @@
           </select>
         </div>
         <div>
+          <label for="sort">เรียงลำดับ</label>
+          <select id="sort" name="sort">
+            {% for s in filter_options.sorts %}
+            <option value="{{ s.value }}" {% if filters.sort == s.value %}selected{% endif %}>{{ s.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
           <label for="date_from">จากวันที่</label>
           <input id="date_from" type="date" name="date_from" value="{{ filters.date_from }}">
         </div>
@@ -76,8 +103,9 @@
       </form>
 
       {% if records %}
+      <p class="helper" style="margin-top:10px">แสดง {{ paging.start }}-{{ paging.end }} จากทั้งหมด {{ paging.total }} รายการ</p>
       <div class="table-wrap">
-        <table>
+        <table class="history-table">
           <thead>
             <tr>
               <th>วันที่</th>
@@ -88,11 +116,12 @@
               <th>โมเดล</th>
               <th>ค่าใช้จ่าย</th>
               <th>รูป</th>
+              <th>รายละเอียด</th>
             </tr>
           </thead>
           <tbody>
           {% for r in records %}
-            <tr>
+            <tr class="history-row">
               <td data-label="วันที่">{{ r.datetime }}</td>
               <td data-label="ตำแหน่ง">{{ r.part }}</td>
               <td data-label="ผล AI"><span class="badge {{ r.result }}">{{ r.result }}</span></td>
@@ -101,11 +130,34 @@
               <td data-label="โมเดล">{{ r.model_version or '-' }}</td>
               <td data-label="ค่าใช้จ่าย">{{ "{:,}".format(r.est_cost_min or 0) }}-{{ "{:,}".format(r.est_cost_max or 0) }}</td>
               <td data-label="รูป"><img class="thumb" src="/{{ r.image_path }}" alt="history image"></td>
+              <td data-label="รายละเอียด"><a class="btn ghost" href="/history/{{ r.id }}">ดูรายละเอียด</a></td>
             </tr>
           {% endfor %}
           </tbody>
         </table>
       </div>
+
+      {% if paging.total_pages > 1 %}
+      <div class="inline-actions" style="margin-top:12px; justify-content:flex-end">
+        {% if paging.has_prev %}
+        <a class="btn ghost" href="/history?part={{ filters.part }}&result={{ filters.result }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}&sort={{ filters.sort }}&page={{ paging.prev_page }}">ก่อนหน้า</a>
+        {% endif %}
+
+        {% set start_page = [1, paging.page - 2]|max %}
+        {% set end_page = [paging.total_pages, paging.page + 2]|min %}
+        {% for p in range(start_page, end_page + 1) %}
+          {% if p == paging.page %}
+          <span class="btn primary" style="pointer-events:none">{{ p }}</span>
+          {% else %}
+          <a class="btn ghost" href="/history?part={{ filters.part }}&result={{ filters.result }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}&sort={{ filters.sort }}&page={{ p }}">{{ p }}</a>
+          {% endif %}
+        {% endfor %}
+
+        {% if paging.has_next %}
+        <a class="btn ghost" href="/history?part={{ filters.part }}&result={{ filters.result }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}&sort={{ filters.sort }}&page={{ paging.next_page }}">ถัดไป</a>
+        {% endif %}
+      </div>
+      {% endif %}
       {% else %}
       <div class="notice empty">ยังไม่มีประวัติการวิเคราะห์ เริ่มจากหน้า “วิเคราะห์” เพื่อสร้างรายการแรก</div>
       {% endif %}

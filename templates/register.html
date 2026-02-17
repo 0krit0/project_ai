@@ -1,0 +1,299 @@
+﻿<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>สมัครสมาชิก | AutoScope AI</title>
+<link rel="stylesheet" href="/static/ui.css">
+</head>
+<body>
+  <main class="auth-wrap">
+    <section class="auth-card">
+      <h1 class="auth-title">สมัครสมาชิก</h1>
+      <p class="auth-sub">กรอกข้อมูลให้ครบเพื่อเริ่มใช้งานระบบประเมินความเสียหายรถยนต์ด้วย AI</p>
+
+      {% if warning %}
+      <div class="notice error" style="margin-bottom:12px">{{ warning }}</div>
+      {% endif %}
+
+      <form method="post" enctype="multipart/form-data" id="registerForm">
+        <div class="auth-avatar-block">
+          <img id="authAvatarPreview" class="auth-avatar-preview is-empty" alt="avatar preview">
+          <div id="authAvatarFallback" class="auth-avatar-fallback">AI</div>
+        </div>
+
+        <label for="username">ชื่อผู้ใช้งาน *</label>
+        <input id="username" type="text" name="username" value="{{ form_data.username }}" required>
+        <p id="usernameFeedback" class="helper field-feedback"></p>
+
+        <label for="email">อีเมล *</label>
+        <input id="email" type="email" name="email" value="{{ form_data.email }}" required>
+        <p id="emailFeedback" class="helper field-feedback"></p>
+
+        <div class="result-grid">
+          <div>
+            <label for="age">อายุ *</label>
+            <input id="age" type="number" name="age" min="10" max="120" step="1" inputmode="numeric" value="{{ form_data.age }}" required>
+            <p id="ageFeedback" class="helper field-feedback"></p>
+          </div>
+          <div>
+            <label for="gender">เพศ *</label>
+            <select id="gender" name="gender" required>
+              <option value="">-- เลือกเพศ --</option>
+              <option value="male" {% if form_data.gender == "male" %}selected{% endif %}>ชาย</option>
+              <option value="female" {% if form_data.gender == "female" %}selected{% endif %}>หญิง</option>
+              <option value="other" {% if form_data.gender == "other" %}selected{% endif %}>อื่นๆ</option>
+            </select>
+          </div>
+        </div>
+
+        <label for="password">รหัสผ่านระบบ *</label>
+        <div class="password-field">
+          <input id="password" type="password" name="password" autocomplete="new-password" minlength="8" required>
+          <button id="togglePasswordBtn" class="password-toggle-btn" type="button" aria-label="แสดงรหัสผ่าน" aria-pressed="false">
+            <svg class="eye-icon eye-open" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M1.5 12s3.8-6.5 10.5-6.5S22.5 12 22.5 12s-3.8 6.5-10.5 6.5S1.5 12 1.5 12z"></path>
+              <circle cx="12" cy="12" r="3.5"></circle>
+            </svg>
+            <svg class="eye-icon eye-closed" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M2 2l20 20"></path>
+              <path d="M3.5 12s3.2-5.5 8.5-6.4"></path>
+              <path d="M20.5 12s-3.2 5.5-8.5 6.4"></path>
+              <path d="M9 9a4.2 4.2 0 0 0 6 6"></path>
+            </svg>
+          </button>
+        </div>
+        <p id="passwordFeedback" class="helper field-feedback">อย่างน้อย 8 ตัว และต้องมีตัวอักษรอย่างน้อย 1 ตัว</p>
+
+        <label for="confirm_password">ยืนยันรหัสผ่าน *</label>
+        <div class="password-field">
+          <input id="confirm_password" type="password" name="confirm_password" autocomplete="new-password" minlength="8" required>
+          <button id="toggleConfirmPasswordBtn" class="password-toggle-btn" type="button" aria-label="แสดงยืนยันรหัสผ่าน" aria-pressed="false">
+            <svg class="eye-icon eye-open" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M1.5 12s3.8-6.5 10.5-6.5S22.5 12 22.5 12s-3.8 6.5-10.5 6.5S1.5 12 1.5 12z"></path>
+              <circle cx="12" cy="12" r="3.5"></circle>
+            </svg>
+            <svg class="eye-icon eye-closed" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M2 2l20 20"></path>
+              <path d="M3.5 12s3.2-5.5 8.5-6.4"></path>
+              <path d="M20.5 12s-3.2 5.5-8.5 6.4"></path>
+              <path d="M9 9a4.2 4.2 0 0 0 6 6"></path>
+            </svg>
+          </button>
+        </div>
+        <p id="confirmFeedback" class="helper field-feedback"></p>
+
+        <label for="avatar">รูปโปรไฟล์ *</label>
+        <input id="avatar" type="file" name="avatar" accept="image/*" required>
+
+        <div class="terms-box">
+          <details id="termsDetails">
+            <summary>อ่านเงื่อนไขการใช้งาน (Terms & Conditions)</summary>
+            <div class="terms-text">
+              ระบบนี้เป็นเครื่องมือประเมินความเสียหายเบื้องต้นจากภาพถ่ายเพื่อช่วยประกอบการตัดสินใจเท่านั้น ผลลัพธ์จาก AI อาจคลาดเคลื่อนได้ตามคุณภาพภาพ มุมกล้อง และเงื่อนไขการใช้งานจริง ผู้ใช้งานต้องรับผิดชอบการนำผลลัพธ์ไปใช้งานและควรตรวจสอบโดยผู้เชี่ยวชาญก่อนซ่อมหรือเคลมจริง การใช้งานระบบนี้ถือว่าคุณยอมรับให้มีการบันทึกข้อมูลที่จำเป็นต่อการปรับปรุงบริการ เช่น ประวัติการวิเคราะห์ สถิติความแม่นยำ และ feedback โดยข้อมูลจะถูกใช้เพื่อพัฒนาคุณภาพระบบภายใต้ขอบเขตของโปรเจคนี้
+            </div>
+          </details>
+          <label class="remember-row" for="accept_terms">
+            <input id="accept_terms" type="checkbox" name="accept_terms" value="1" {% if form_data.accept_terms %}checked{% endif %} required>
+            ฉันยอมรับเงื่อนไขการใช้งาน
+          </label>
+        </div>
+
+        <div class="inline-actions">
+          <button class="btn primary" id="registerSubmitBtn" type="submit">
+            <span id="registerSubmitText">สมัครสมาชิก</span>
+            <span id="registerSpinner" class="btn-spinner" hidden></span>
+          </button>
+          <a class="btn ghost" href="/login">กลับไปเข้าสู่ระบบ</a>
+        </div>
+      </form>
+    </section>
+  </main>
+<script>
+(function () {
+  const form = document.getElementById('registerForm');
+  const usernameInput = document.getElementById('username');
+  const emailInput = document.getElementById('email');
+  const ageInput = document.getElementById('age');
+  const passwordInput = document.getElementById('password');
+  const confirmInput = document.getElementById('confirm_password');
+  const avatarInput = document.getElementById('avatar');
+  const preview = document.getElementById('authAvatarPreview');
+  const fallback = document.getElementById('authAvatarFallback');
+  const registerSubmitBtn = document.getElementById('registerSubmitBtn');
+  const registerSubmitText = document.getElementById('registerSubmitText');
+  const registerSpinner = document.getElementById('registerSpinner');
+  const acceptTerms = document.getElementById('accept_terms');
+  const termsDetails = document.getElementById('termsDetails');
+
+  const usernameFeedback = document.getElementById('usernameFeedback');
+  const emailFeedback = document.getElementById('emailFeedback');
+  const ageFeedback = document.getElementById('ageFeedback');
+  const passwordFeedback = document.getElementById('passwordFeedback');
+  const confirmFeedback = document.getElementById('confirmFeedback');
+
+  const togglePasswordBtn = document.getElementById('togglePasswordBtn');
+  const toggleConfirmPasswordBtn = document.getElementById('toggleConfirmPasswordBtn');
+
+  const setFeedback = function (el, text, ok) {
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.remove('ok', 'error');
+    if (!text) return;
+    el.classList.add(ok ? 'ok' : 'error');
+  };
+
+  const togglePasswordField = function (inputEl, btnEl, showLabel, hideLabel) {
+    if (!inputEl || !btnEl) return;
+    btnEl.addEventListener('click', function () {
+      const isHidden = inputEl.type === 'password';
+      inputEl.type = isHidden ? 'text' : 'password';
+      btnEl.classList.toggle('is-visible', isHidden);
+      btnEl.setAttribute('aria-pressed', isHidden ? 'true' : 'false');
+      btnEl.setAttribute('aria-label', isHidden ? hideLabel : showLabel);
+    });
+  };
+
+  togglePasswordField(passwordInput, togglePasswordBtn, 'แสดงรหัสผ่าน', 'ซ่อนรหัสผ่าน');
+  togglePasswordField(confirmInput, toggleConfirmPasswordBtn, 'แสดงยืนยันรหัสผ่าน', 'ซ่อนยืนยันรหัสผ่าน');
+
+  const validatePassword = function () {
+    const val = (passwordInput.value || '');
+    const hasLength = val.length >= 8;
+    const hasLetter = /[A-Za-z]/.test(val);
+    if (!val) {
+      setFeedback(passwordFeedback, 'อย่างน้อย 8 ตัว และต้องมีตัวอักษรอย่างน้อย 1 ตัว', false);
+      return false;
+    }
+    if (hasLength && hasLetter) {
+      setFeedback(passwordFeedback, 'รหัสผ่านผ่านเงื่อนไข', true);
+      return true;
+    }
+    setFeedback(passwordFeedback, 'รหัสผ่านไม่ปลอดภัยพอ (ต้องมี 8 ตัวและมีตัวอักษร)', false);
+    return false;
+  };
+
+  const validateConfirm = function () {
+    const p1 = passwordInput.value || '';
+    const p2 = confirmInput.value || '';
+    if (!p2) {
+      setFeedback(confirmFeedback, '', false);
+      return false;
+    }
+    if (p1 === p2) {
+      setFeedback(confirmFeedback, 'รหัสผ่านตรงกัน', true);
+      return true;
+    }
+    setFeedback(confirmFeedback, 'รหัสผ่านไม่ตรงกัน', false);
+    return false;
+  };
+
+  const validateAge = function () {
+    const raw = ageInput.value || '';
+    const age = Number(raw);
+    if (!raw) {
+      setFeedback(ageFeedback, '', false);
+      return false;
+    }
+    if (Number.isInteger(age) && age >= 10 && age <= 120) {
+      setFeedback(ageFeedback, 'อายุใช้งานได้', true);
+      return true;
+    }
+    setFeedback(ageFeedback, 'อายุไม่ถูกต้อง (10-120)', false);
+    return false;
+  };
+
+  let usernameTimer = null;
+  let emailTimer = null;
+
+  const checkRemote = async function (params) {
+    const q = new URLSearchParams(params).toString();
+    const res = await fetch('/api/auth/register-check?' + q);
+    return res.json();
+  };
+
+  if (usernameInput) {
+    usernameInput.addEventListener('input', function () {
+      const username = (usernameInput.value || '').trim();
+      if (usernameTimer) clearTimeout(usernameTimer);
+      if (!username) {
+        setFeedback(usernameFeedback, '', false);
+        return;
+      }
+      usernameTimer = setTimeout(async function () {
+        try {
+          const data = await checkRemote({ username: username });
+          if (data.username) {
+            setFeedback(usernameFeedback, data.username.message, !!data.username.valid);
+          }
+        } catch (err) {
+          setFeedback(usernameFeedback, '', false);
+        }
+      }, 300);
+    });
+  }
+
+  if (emailInput) {
+    emailInput.addEventListener('input', function () {
+      const email = (emailInput.value || '').trim();
+      if (emailTimer) clearTimeout(emailTimer);
+      if (!email) {
+        setFeedback(emailFeedback, '', false);
+        return;
+      }
+      emailTimer = setTimeout(async function () {
+        try {
+          const data = await checkRemote({ email: email });
+          if (data.email) {
+            setFeedback(emailFeedback, data.email.message, !!data.email.valid);
+          }
+        } catch (err) {
+          setFeedback(emailFeedback, '', false);
+        }
+      }, 300);
+    });
+  }
+
+  if (passwordInput) passwordInput.addEventListener('input', function () { validatePassword(); validateConfirm(); });
+  if (confirmInput) confirmInput.addEventListener('input', validateConfirm);
+  if (ageInput) ageInput.addEventListener('input', validateAge);
+
+  if (avatarInput && preview && fallback) {
+    avatarInput.addEventListener('change', function (e) {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        preview.src = event.target.result;
+        preview.classList.remove('is-empty');
+        fallback.style.display = 'none';
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  if (acceptTerms && termsDetails) {
+    acceptTerms.addEventListener('change', function () {
+      if (acceptTerms.checked) termsDetails.open = true;
+    });
+  }
+
+  if (form && registerSubmitBtn) {
+    form.addEventListener('submit', function (e) {
+      const passOk = validatePassword();
+      const confirmOk = validateConfirm();
+      const ageOk = validateAge();
+      if (!passOk || !confirmOk || !ageOk || !form.reportValidity()) {
+        e.preventDefault();
+        return;
+      }
+      registerSubmitBtn.disabled = true;
+      if (registerSubmitText) registerSubmitText.textContent = 'กำลังสมัครสมาชิก...';
+      if (registerSpinner) registerSpinner.hidden = false;
+    });
+  }
+})();
+</script>
+</body>
+</html>
+

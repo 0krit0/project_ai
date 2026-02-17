@@ -3,47 +3,54 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>เข้าสู่ระบบ | CarDamage AI</title>
+<title>เข้าสู่ระบบ | AutoScope AI</title>
 <link rel="stylesheet" href="/static/ui.css">
 </head>
 <body>
   <main class="auth-wrap">
     <section class="auth-card">
-      <h1 class="auth-title">CarDamage AI</h1>
+      <h1 class="auth-title">AutoScope AI</h1>
       <p class="auth-sub">ระบบประเมินความเสียหายรถยนต์จากภาพถ่ายด้วย AI สำหรับการตัดสินใจเบื้องต้น</p>
 
       {% if warning %}
       <div class="notice error" style="margin-bottom:12px">{{ warning }}</div>
       {% endif %}
+      {% if success %}
+      <div class="notice ok" style="margin-bottom:12px">{{ success }}</div>
+      {% endif %}
 
-      <form method="post" enctype="multipart/form-data" id="authForm">
-        <div class="auth-avatar-block">
-          <img id="authAvatarPreview" class="auth-avatar-preview is-empty" alt="avatar preview">
-          <div id="authAvatarFallback" class="auth-avatar-fallback">AI</div>
-        </div>
-
+      <form method="post" id="authForm">
         <label for="username">ชื่อผู้ใช้งาน</label>
         <input id="username" type="text" name="username" placeholder="เช่น Somchai" required>
 
         <label for="password">รหัสผ่านระบบ</label>
-        <div class="inline-actions">
+        <div class="password-field">
           <input id="password" type="password" name="password" autocomplete="current-password" minlength="8" required>
-          <button id="togglePasswordBtn" class="btn ghost" type="button">เปิดตา</button>
+          <button id="togglePasswordBtn" class="password-toggle-btn" type="button" aria-label="แสดงรหัสผ่าน" aria-pressed="false">
+            <svg class="eye-icon eye-open" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M1.5 12s3.8-6.5 10.5-6.5S22.5 12 22.5 12s-3.8 6.5-10.5 6.5S1.5 12 1.5 12z"></path>
+              <circle cx="12" cy="12" r="3.5"></circle>
+            </svg>
+            <svg class="eye-icon eye-closed" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M2 2l20 20"></path>
+              <path d="M3.5 12s3.2-5.5 8.5-6.4"></path>
+              <path d="M20.5 12s-3.2 5.5-8.5 6.4"></path>
+              <path d="M9 9a4.2 4.2 0 0 0 6 6"></path>
+            </svg>
+          </button>
         </div>
-        <p class="helper">อย่างน้อย 8 ตัว และต้องมีตัวอักษรภาษาอังกฤษกับตัวเลข</p>
+        <p class="helper">อย่างน้อย 8 ตัว และต้องมีตัวอักษรอย่างน้อย 1 ตัว</p>
 
-        <label for="avatar">รูปโปรไฟล์ (เลือกได้)</label>
-        <input id="avatar" type="file" name="avatar" accept="image/*" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;">
-        <div class="inline-actions" style="margin-top:6px">
-          <button id="pickAvatarBtn" class="btn ghost" type="button">เลือกรูปโปรไฟล์</button>
-          <span id="avatarFileName" class="helper">ยังไม่ได้เลือกไฟล์</span>
-        </div>
-        <p class="helper">รูปนี้จะถูกใช้เมื่อกด “สมัครสมาชิก” เท่านั้น</p>
+        <label class="remember-row" for="remember_me">
+          <input id="remember_me" type="checkbox" name="remember_me" value="1" {% if remember_me_checked %}checked{% endif %}>
+          จำฉันไว้ในอุปกรณ์นี้
+        </label>
 
-        <div class="inline-actions">
-          <button class="btn primary" type="submit" name="mode" value="login">เข้าสู่ระบบ</button>
-          <button class="btn ghost" type="submit" name="mode" value="register">สมัครสมาชิก</button>
+        <div class="inline-actions login-actions">
+          <button class="btn primary login-primary-btn" id="loginSubmitBtn" type="submit">เข้าสู่ระบบ</button>
+          <a class="btn ghost login-secondary-btn" href="/register">สมัครสมาชิก</a>
         </div>
+        <p class="helper"><a href="/forgot-password">ลืมรหัสผ่าน?</a></p>
       </form>
 
       <p class="helper">ควรตรวจสภาพจริงโดยช่างผู้เชี่ยวชาญก่อนซ่อมทุกครั้ง</p>
@@ -51,39 +58,27 @@
   </main>
 <script>
 (function () {
-  const avatarInput = document.getElementById('avatar');
   const passwordInput = document.getElementById('password');
   const togglePasswordBtn = document.getElementById('togglePasswordBtn');
-  const preview = document.getElementById('authAvatarPreview');
-  const fallback = document.getElementById('authAvatarFallback');
-  const pickAvatarBtn = document.getElementById('pickAvatarBtn');
-  const avatarFileName = document.getElementById('avatarFileName');
-  if (!avatarInput || !preview || !fallback) return;
+  const authForm = document.getElementById('authForm');
+  const loginSubmitBtn = document.getElementById('loginSubmitBtn');
   if (passwordInput && togglePasswordBtn) {
     togglePasswordBtn.addEventListener('click', function () {
       const isHidden = passwordInput.type === 'password';
       passwordInput.type = isHidden ? 'text' : 'password';
-      togglePasswordBtn.textContent = isHidden ? 'ปิดตา' : 'เปิดตา';
+      togglePasswordBtn.classList.toggle('is-visible', isHidden);
+      togglePasswordBtn.setAttribute('aria-pressed', isHidden ? 'true' : 'false');
+      togglePasswordBtn.setAttribute('aria-label', isHidden ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน');
     });
   }
-  if (pickAvatarBtn) {
-    pickAvatarBtn.addEventListener('click', function () {
-      avatarInput.click();
+  if (authForm && loginSubmitBtn) {
+    authForm.addEventListener('submit', function () {
+      loginSubmitBtn.disabled = true;
+      loginSubmitBtn.textContent = 'กำลังเข้าสู่ระบบ...';
     });
   }
-  avatarInput.addEventListener('change', function (e) {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    if (avatarFileName) avatarFileName.textContent = file.name;
-    const reader = new FileReader();
-    reader.onload = function (event) {
-      preview.src = event.target.result;
-      preview.classList.remove('is-empty');
-      fallback.style.display = 'none';
-    };
-    reader.readAsDataURL(file);
-  });
 })();
 </script>
 </body>
 </html>
+

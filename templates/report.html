@@ -1,15 +1,15 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="th">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>รายงานล่าสุด | CarDamage AI</title>
+<title>รายงานล่าสุด | AutoScope AI</title>
 <link rel="stylesheet" href="/static/ui.css">
 </head>
 <body>
 <div class="page">
   <aside class="sidebar">
-    <div class="brand">CarDamage AI</div>
+    <div class="brand">AutoScope AI</div>
     <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
     <nav class="nav">
       <a href="/">วิเคราะห์</a>
@@ -30,18 +30,22 @@
   <main class="main">
     <header class="header">
       <h1>รายงานผลวิเคราะห์ล่าสุด</h1>
-      <p>หน้าแบบพิมพ์ได้ (Print-friendly) พร้อมเลือกโทนสรุปสำหรับลูกค้า/ช่าง/ประกัน</p>
+      <p>หน้าแบบพิมพ์ได้ พร้อมเลือกโหมดสรุปตามกลุ่มผู้รับ</p>
     </header>
+
+    {% if toast %}
+    <div class="toast {{ toast.level }}">{{ toast.text }}</div>
+    {% endif %}
 
     <section class="card soft">
       <div class="inline-actions" style="margin-bottom:12px">
-        <label for="summaryToneSelect">โทนสรุปรายงาน</label>
+        <label for="summaryToneSelect">โหมดสรุปรายงาน</label>
         <select id="summaryToneSelect">
-          <option value="customer" {% if summary_tone == "customer" %}selected{% endif %}>ลูกค้า</option>
-          <option value="technical" {% if summary_tone == "technical" %}selected{% endif %}>ช่าง/เทคนิค</option>
-          <option value="insurance" {% if summary_tone == "insurance" %}selected{% endif %}>ประกัน</option>
+          <option value="customer" {% if summary_tone == "customer" %}selected{% endif %}>แบบทั่วไป</option>
+          <option value="technical" {% if summary_tone == "technical" %}selected{% endif %}>แบบช่าง/เทคนิค</option>
+          <option value="insurance" {% if summary_tone == "insurance" %}selected{% endif %}>แบบประกัน</option>
         </select>
-        <button class="btn ghost" type="button" id="applyToneBtn">เปลี่ยนโทน</button>
+        <button class="btn ghost" type="button" id="applyToneBtn">เปลี่ยนโหมด</button>
       </div>
 
       {% if row %}
@@ -52,11 +56,13 @@
         <div class="kpi"><div class="label">ความมั่นใจ</div><div class="value">{{ row.confidence }}%</div></div>
         <div class="kpi"><div class="label">ความเชื่อมั่น</div><div class="value">{{ row.trust }}</div></div>
         <div class="kpi"><div class="label">โมเดล</div><div class="value">{{ row.model_version or '-' }}</div></div>
-        <div class="kpi"><div class="label">ช่วงค่าใช้จ่าย</div><div class="value">{{ "{:,}".format(row.est_cost_min or 0) }} - {{ "{:,}".format(row.est_cost_max or 0) }} บาท</div></div>
+        <div class="kpi"><div class="label">ช่วงค่าซ่อม</div><div class="value">{{ "{:,}".format(row.est_cost_min or 0) }} - {{ "{:,}".format(row.est_cost_max or 0) }} บาท</div></div>
       </div>
+
       <div style="margin-top:14px">
         <img class="heatmap-image" src="/{{ row.image_path }}" alt="evidence image">
       </div>
+
       {% if incident_summary %}
       <div class="quality-box" style="margin-top:12px">
         <div class="label">Incident Summary ({{ summary_tone }})</div>
@@ -64,13 +70,17 @@
       </div>
       {% endif %}
       {% else %}
-      <div class="notice empty">ยังไม่มีผลวิเคราะห์สำหรับสร้างรายงาน</div>
+      <div class="notice empty">ยังไม่มีผลวิเคราะห์สำหรับสร้างรายงานล่าสุด</div>
       {% endif %}
 
       <div class="inline-actions" style="margin-top:12px">
         <button class="btn primary" type="button" onclick="window.print()">พิมพ์/บันทึก PDF</button>
         <a class="btn ghost" id="pdfToneLink" href="/report/latest.pdf?summary_tone={{ summary_tone or 'customer' }}">ดาวน์โหลด PDF (Server)</a>
-        <a class="btn ghost" id="csvToneLink" href="/export_csv?summary_tone={{ summary_tone or 'customer' }}">ส่งออก CSV (โทนนี้)</a>
+        <a class="btn ghost" id="csvToneLink" href="/export_csv?summary_tone={{ summary_tone or 'customer' }}">ส่งออก CSV (โหมดนี้)</a>
+        <form method="post" action="/report/latest/email">
+          <input type="hidden" name="summary_tone" id="emailSummaryToneInput" value="{{ summary_tone or 'customer' }}">
+          <button class="btn warm" type="submit">ส่งรายงานนี้เข้าอีเมล</button>
+        </form>
       </div>
     </section>
   </main>
@@ -82,12 +92,14 @@
   const applyBtn = document.getElementById('applyToneBtn');
   const pdfLink = document.getElementById('pdfToneLink');
   const csvLink = document.getElementById('csvToneLink');
+  const emailToneInput = document.getElementById('emailSummaryToneInput');
   if (!toneSelect) return;
 
   function refreshLinks() {
     const tone = toneSelect.value || 'customer';
     if (pdfLink) pdfLink.href = '/report/latest.pdf?summary_tone=' + encodeURIComponent(tone);
     if (csvLink) csvLink.href = '/export_csv?summary_tone=' + encodeURIComponent(tone);
+    if (emailToneInput) emailToneInput.value = tone;
   }
 
   refreshLinks();
@@ -102,3 +114,4 @@
 </script>
 </body>
 </html>
+

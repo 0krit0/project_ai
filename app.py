@@ -4,14 +4,19 @@ import csv
 import json
 import uuid
 import re
+import time
 import logging
+import smtplib
+import hashlib
+import secrets
 import subprocess
 from queue import Queue, Empty
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Lock, Thread
 from collections import defaultdict, deque
 from logging.handlers import RotatingFileHandler
+from email.message import EmailMessage
 
 import numpy as np
 import tensorflow as tf
@@ -39,9 +44,30 @@ from db import (
     create_user,
     set_user_password,
     set_user_avatar,
+    set_user_profile,
+    set_onboarding_done,
+    get_user_profile,
+    get_user_by_email,
+    email_in_use,
+    set_email_verified,
+    create_email_verify_code,
+    get_latest_active_email_verify_code,
+    consume_email_verify_code,
+    get_last_user_email_log,
+    create_password_reset_token,
+    get_password_reset_token,
+    consume_password_reset_token,
+    add_email_log,
+    list_user_email_logs,
+    is_case_favorite,
+    toggle_case_favorite,
+    list_user_favorite_case_ids,
     add_history,
     add_feedback,
     get_user_history,
+    count_user_history,
+    get_user_history_summary,
+    get_user_history_item,
     get_profile_summary,
     get_profile_insights,
     get_dashboard_data,
@@ -57,7 +83,9 @@ from db import (
     list_cases_for_review,
     list_recent_reviewed_cases,
     add_case_image,
+    set_case_prediction,
     delete_case_image,
+    delete_case,
     get_case_detail,
     get_case_for_review,
     review_case,
@@ -94,6 +122,8 @@ INLINE_WORKER_ENABLED = os.getenv("INLINE_WORKER_ENABLED", "true").lower() == "t
 TOP_K_OUTCOMES = max(1, min(10, env_int("TOP_K_OUTCOMES", 3)))
 ANALYZE_RATE_LIMIT_COUNT = env_int("ANALYZE_RATE_LIMIT_COUNT", 8)
 ANALYZE_RATE_LIMIT_WINDOW_SEC = env_int("ANALYZE_RATE_LIMIT_WINDOW_SEC", 60)
+LOGIN_RATE_LIMIT_COUNT = env_int("LOGIN_RATE_LIMIT_COUNT", 6)
+LOGIN_RATE_LIMIT_WINDOW_SEC = env_int("LOGIN_RATE_LIMIT_WINDOW_SEC", 300)
 NON_CAR_GUARD_ENABLED = os.getenv("NON_CAR_GUARD_ENABLED", "true").lower() == "true"
 NON_CAR_MIN_CONFIDENCE = float(os.getenv("NON_CAR_MIN_CONFIDENCE", "72"))
 NON_CAR_MIN_SCORE_GAP = float(os.getenv("NON_CAR_MIN_SCORE_GAP", "18"))
@@ -118,12 +148,21 @@ TTA_VARIANTS = max(1, min(5, env_int("TTA_VARIANTS", 4)))
 
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_UPLOAD_BYTES = env_int("MAX_UPLOAD_BYTES", 5 * 1024 * 1024)
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = env_int("SMTP_PORT", 587)
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USERNAME or "noreply@example.com").strip()
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+APP_BASE_URL = os.getenv("APP_BASE_URL", "").strip().rstrip("/")
+PASSWORD_RESET_TOKEN_MINUTES = env_int("PASSWORD_RESET_TOKEN_MINUTES", 30)
 
 RETRAIN_CHECK_LOCK = Lock()
 RATE_LIMIT_LOCK = Lock()
 MODEL_LOAD_LOCK = Lock()
 WORKER_LOCK = Lock()
 ANALYZE_HITS = defaultdict(deque)
+LOGIN_HITS = defaultdict(deque)
 _retrain_check_running = False
 ANALYSIS_JOB_QUEUE = Queue()
 WORKER_STARTED = False
@@ -340,19 +379,19 @@ def api_require_reviewer(view_func):
 
 def validate_upload(file_storage):
     if file_storage is None:
-        return "เนเธกเนเธเธเนเธเธฅเนเธฃเธนเธเธ—เธตเนเธญเธฑเธเนเธซเธฅเธ”"
+        return "ไม่พบไฟล์รูปที่อัปโหลด"
 
     filename = (file_storage.filename or "").strip()
     if not filename:
-        return "เธเธทเนเธญเนเธเธฅเนเนเธกเนเธ–เธนเธเธ•เนเธญเธ"
+        return "ชื่อไฟล์ไม่ถูกต้อง"
 
     ext = os.path.splitext(filename.lower())[1]
     if ext not in ALLOWED_IMAGE_EXTENSIONS:
-        return "เธฃเธญเธเธฃเธฑเธเน€เธเธเธฒเธฐเนเธเธฅเน .jpg .jpeg .png .webp"
+        return "รองรับเฉพาะไฟล์ .jpg .jpeg .png .webp"
 
     mimetype = (file_storage.mimetype or "").lower()
     if not mimetype.startswith("image/"):
-        return "เนเธเธฅเนเธ—เธตเนเธญเธฑเธเนเธซเธฅเธ”เธ•เนเธญเธเน€เธเนเธเธฃเธนเธเธ เธฒเธเน€เธ—เนเธฒเธเธฑเนเธ"
+        return "ไฟล์ที่อัปโหลดต้องเป็นรูปภาพเท่านั้น"
 
     pos = file_storage.stream.tell()
     file_storage.stream.seek(0, os.SEEK_END)
@@ -360,9 +399,9 @@ def validate_upload(file_storage):
     file_storage.stream.seek(pos, os.SEEK_SET)
 
     if size <= 0:
-        return "เนเธเธฅเนเธฃเธนเธเธงเนเธฒเธเธซเธฃเธทเธญเธญเนเธฒเธเธเนเธญเธกเธนเธฅเนเธกเนเนเธ”เน"
+        return "ไฟล์รูปว่างหรืออ่านข้อมูลไม่ได้"
     if size > MAX_UPLOAD_BYTES:
-        return f"เนเธเธฅเนเนเธซเธเนเน€เธเธดเธเธเธณเธซเธเธ” (เธชเธนเธเธชเธธเธ” {MAX_UPLOAD_BYTES // (1024 * 1024)}MB)"
+        return f"ไฟล์ใหญ่เกินกำหนด (สูงสุด {MAX_UPLOAD_BYTES // (1024 * 1024)}MB)"
     return None
 
 
@@ -415,21 +454,21 @@ def assess_image_quality(img_pil):
     edge_strength = float((grad_x + grad_y) / 2.0)
 
     if min(h, w) < 160:
-        return "เธฃเธนเธเธกเธตเธเธเธฒเธ”เน€เธฅเนเธเน€เธเธดเธเนเธ (เธเธฑเนเธเธ•เนเธณเนเธเธฐเธเธณ 160x160)", []
+        return "รูปมีขนาดเล็กเกินไป (ขั้นต่ำแนะนำ 160x160)", []
     if brightness < 18:
-        return "เธฃเธนเธเธกเธทเธ”เน€เธเธดเธเนเธเธเธเธฃเธฐเธเธเธเธฃเธฐเน€เธกเธดเธเนเธ”เนเนเธกเนเนเธกเนเธเธขเธณ", []
+        return "รูปมืดเกินไปจนระบบประเมินได้ไม่แม่นยำ", []
     if brightness > 248:
-        return "เธฃเธนเธเธชเธงเนเธฒเธเธเนเธฒเน€เธเธดเธเนเธเธเธเธฃเธฒเธขเธฅเธฐเน€เธญเธตเธขเธ”เธซเธฒเธข", []
+        return "รูปสว่างจ้าเกินไปจนรายละเอียดหาย", []
 
     notes = []
     if brightness < 45:
-        notes.append("เธ เธฒเธเธเนเธญเธเธเนเธฒเธเธกเธทเธ”")
+        notes.append("ภาพค่อนข้างมืด")
     if brightness > 220:
-        notes.append("เธ เธฒเธเธเนเธญเธเธเนเธฒเธเธชเธงเนเธฒเธเธเนเธฒ")
+        notes.append("ภาพค่อนข้างสว่างจ้า")
     if contrast < 22:
-        notes.append("เธเธญเธเธ—เธฃเธฒเธชเธ•เนเธ•เนเธณ เธญเธฒเธเนเธขเธเธเธธเธ”เน€เธชเธตเธขเธซเธฒเธขเนเธ”เนเธขเธฒเธ")
+        notes.append("คอนทราสต์ต่ำ อาจแยกรอยเสียหายได้ยาก")
     if edge_strength < 10:
-        notes.append("เธ เธฒเธเธญเธฒเธเน€เธเธฅเธญเธซเธฃเธทเธญเธชเธฑเนเธ")
+        notes.append("ภาพอาจเบลอหรือสั่น")
 
     return None, notes
 
@@ -488,19 +527,19 @@ def generate_heatmap_overlay(img_batch, class_index):
 def confidence_policy(confidence):
     if confidence >= 85:
         return {
-            "tier": "เธเธฃเนเธญเธกเนเธเนเธ•เธฑเธ”เธชเธดเธเนเธเน€เธเธทเนเธญเธเธ•เนเธ",
-            "advice": "เนเธเนเธเธฅเธเธตเนเธเนเธงเธขเธเธฃเธฐเน€เธกเธดเธเธเนเธฒเน€เธชเธตเธขเธซเธฒเธขเน€เธเธทเนเธญเธเธ•เนเธเนเธ”เน เนเธ•เนเธขเธฑเธเธเธงเธฃเธกเธตเธเธฒเธฃเธ•เธฃเธงเธเธซเธเนเธฒเธเธฒเธ",
+            "tier": "พร้อมใช้ตัดสินใจเบื้องต้น",
+            "advice": "ใช้ผลนี้ประเมินเบื้องต้นได้ แต่ควรมีการตรวจสภาพจริงร่วมด้วย",
             "flag": "high",
         }
     if confidence >= 65:
         return {
-            "tier": "เธเธงเธฃเธขเธทเธเธขเธฑเธเธเนเธณ",
-            "advice": "เนเธเนเธเธฅเธเธตเนเธฃเนเธงเธกเธเธฑเธเธเธฒเธฃเธ•เธฃเธงเธเธ”เนเธงเธขเธ•เธฒเนเธฅเธฐเธ เธฒเธเน€เธเธดเนเธกเน€เธ•เธดเธกเธเนเธญเธเธเธฃเธฐเน€เธกเธดเธเธเนเธฒเนเธเนเธเนเธฒเธข",
+            "tier": "ควรตรวจยืนยันซ้ำ",
+            "advice": "แนะนำให้ดูด้วยตาและเพิ่มภาพหลายมุมก่อนสรุปค่าใช้จ่าย",
             "flag": "medium",
         }
     return {
-        "tier": "เธเธงเธฒเธกเนเธกเนเนเธเนเธเธญเธเธชเธนเธ",
-        "advice": "เนเธกเนเธเธงเธฃเนเธเนเธเธฅเธเธตเนเน€เธ”เธตเนเธขเธงเน เนเธเธฐเธเธณเธ–เนเธฒเธขเธ เธฒเธเนเธซเธกเนเธซเธฃเธทเธญเนเธซเนเธเนเธฒเธเธ•เธฃเธงเธเธชเธญเธเธเนเธญเธเธชเธฃเธธเธ",
+        "tier": "ความไม่แน่นอนสูง",
+        "advice": "ยังไม่ควรใช้ผลนี้ลำพัง ควรถ่ายใหม่หรือให้ผู้เชี่ยวชาญช่วยตรวจ",
         "flag": "low",
     }
 
@@ -512,13 +551,13 @@ def estimate_cost_range(part, level):
         "high": (12000, 35000),
     }.get(level, (2000, 8000))
     part_multiplier = {
-        "เนเธเธซเธเนเธฒ": 1.15,
-        "เธเธฃเธฐเธเธเธฃเธ–": 1.25,
-        "เธเธฑเธเธเธเธซเธเนเธฒ": 1.0,
-        "เธเธฑเธเธเธเธซเธฅเธฑเธ": 1.0,
-        "เธเธฃเธฐเธ•เธน": 1.1,
-        "เธเธฒเธเธฃเธฐเนเธเธฃเธเธซเธเนเธฒ": 1.2,
-        "เนเธเนเธกเธเนเธฒเธเธฃเธ–": 1.05,
+        "ไฟหน้า": 1.15,
+        "กระจกรถ": 1.25,
+        "กันชนหน้า": 1.0,
+        "กันชนหลัง": 1.0,
+        "ประตู": 1.1,
+        "ฝากระโปรงหน้า": 1.2,
+        "แก้มข้างรถ": 1.05,
     }.get(part, 1.0)
     return int(base[0] * part_multiplier), int(base[1] * part_multiplier)
 
@@ -644,7 +683,7 @@ def build_assessment_options(part, raw_scores):
         cost_min, cost_max = estimate_cost_range(part, level)
         detail = RULES.get(part, {}).get(
             level,
-            {"description": "เนเธกเนเธกเธตเธเนเธญเธกเธนเธฅ", "repair": "เนเธกเนเธกเธตเธเนเธญเธกเธนเธฅ"},
+            {"description": "ไม่มีข้อมูล", "repair": "ไม่มีข้อมูล"},
         )
         expected_cost = (cost_min + cost_max) / 2.0
         weighted_cost += expected_cost * probability
@@ -750,25 +789,25 @@ def build_ai_insights(result, confidence, score_gap, entropy, quality_metrics, d
 
     if severity_index >= 78:
         urgency = "urgent"
-        urgency_label = "เน€เธฃเนเธเธ”เนเธงเธ"
+        urgency_label = "เร่งด่วน"
     elif severity_index >= 52:
         urgency = "moderate"
-        urgency_label = "เธเธงเธฃเธ”เธณเน€เธเธดเธเธเธฒเธฃเน€เธฃเนเธง"
+        urgency_label = "ควรดำเนินการเร็ว"
     else:
         urgency = "normal"
-        urgency_label = "เธ•เธดเธ”เธ•เธฒเธกเนเธ”เน"
+        urgency_label = "ติดตามได้"
 
     actions = []
     if domain_gate.get("mode") == "model" and not domain_gate.get("is_car"):
-        actions.append("เธ•เธฃเธงเธเธงเนเธฒเน€เธเนเธเธ เธฒเธเธฃเธ–เธเธฃเธดเธเธเนเธญเธเธชเนเธเน€เธเนเธฒเธเธฃเธฐเน€เธกเธดเธ")
+        actions.append("ตรวจว่าเป็นภาพรถจริงก่อนส่งประเมิน")
     if reliability_score < 45:
-        actions.append("เธ–เนเธฒเธขเธ เธฒเธเนเธซเธกเนเนเธเนเธชเธเธเธฃเธฃเธกเธเธฒเธ•เธดเนเธฅเธฐเนเธซเนเธญเธขเธนเนเนเธเธฅเนเธเธธเธ”เน€เธชเธตเธขเธซเธฒเธขเธกเธฒเธเธเธถเนเธ")
+        actions.append("ถ่ายภาพใหม่ในที่แสงดีและเข้าใกล้จุดเสียหายมากขึ้น")
     if entropy > 0.9 or score_gap < 15:
-        actions.append("เธเธฅเธขเธฑเธเนเธกเนเน€เธชเธ–เธตเธขเธฃ เนเธเธฐเธเธณเนเธซเนเธ•เธฃเธงเธเธเนเธณเธซเธฃเธทเธญเธชเนเธ reviewer เธขเธทเธเธขเธฑเธ")
+        actions.append("ผลยังไม่นิ่ง แนะนำตรวจซ้ำหรือส่ง reviewer ยืนยัน")
     if (quality_metrics.get("edge_density") or 0) < 0.08:
-        actions.append("เธ เธฒเธเธญเธฒเธเน€เธเธฅเธญ เนเธซเนเธ–เธทเธญเธเธฅเนเธญเธเธเธดเนเธเธเธถเนเธเธซเธฃเธทเธญเน€เธเธดเนเธกเธเธงเธฒเธกเธเธกเธเธฑเธ”")
+        actions.append("ภาพอาจเบลอ ควรถือนิ่งขึ้นหรือเพิ่มความคมชัด")
     if not actions:
-        actions.append("เธชเธฒเธกเธฒเธฃเธ–เนเธเนเธเธฅเธเธตเนเน€เธเนเธ baseline estimate เนเธ”เน เนเธฅเธฐเธ•เธฃเธงเธเธซเธเนเธฒเธเธฒเธเธเนเธญเธเธเธดเธ”เธเธฒเธ")
+        actions.append("ใช้ผลนี้เป็น baseline estimate ได้ แต่ควรตรวจหน้างานก่อนปิดงาน")
 
     return {
         "reliability_score": reliability_score,
@@ -830,29 +869,29 @@ def build_incident_summary(
 ):
     image_count = int((multi_angle or {}).get("image_count", 1))
     consistency = float((multi_angle or {}).get("consistency_score", 0.0))
-    urgency = (ai_insights or {}).get("urgency_label", "เธ•เธดเธ”เธ•เธฒเธกเนเธ”เน")
+    urgency = (ai_insights or {}).get("urgency_label", "ติดตามได้")
     reliability = float((ai_insights or {}).get("reliability_score", 0.0))
     quality_score = float((quality_metrics or {}).get("quality_score", 0.0))
-    mode = "เธซเธฅเธฒเธขเธกเธธเธก" if image_count > 1 else "เธกเธธเธกเน€เธ”เธตเธขเธง"
+    mode = "หลายมุม" if image_count > 1 else "มุมเดียว"
     tone = normalize_summary_tone(tone)
     if tone == "technical":
         return (
-            f"เธชเธฃเธธเธเน€เธเธดเธเน€เธ—เธเธเธดเธ: part={part}, class={result}, conf={confidence:.2f}%, "
+            f"สรุปเชิงเทคนิค: part={part}, class={result}, conf={confidence:.2f}%, "
             f"images={image_count} ({mode}), consistency={consistency:.2f}%, reliability={reliability:.2f}%, "
             f"quality_score={quality_score:.2f}, cost_range={est_min:,}-{est_max:,} THB, urgency={urgency}."
         )
     if tone == "insurance":
         return (
-            f"เธชเธฃเธธเธเธชเธณเธซเธฃเธฑเธเธเธฒเธเน€เธเธฅเธก: เธ•เธฃเธงเธเธเธเธเธงเธฒเธกเน€เธชเธตเธขเธซเธฒเธขเธเธฃเธดเน€เธงเธ“ {part} เธฃเธฐเธ”เธฑเธ {result} เธเธฒเธเธ เธฒเธ{mode} {image_count} เธ เธฒเธ "
-            f"(เธเธงเธฒเธกเธชเธญเธ”เธเธฅเนเธญเธ {consistency:.2f}%, เธเธงเธฒเธกเธเนเธฒเน€เธเธทเนเธญเธ–เธทเธญ {reliability:.2f}%). "
-            f"เธเธฃเธฐเน€เธกเธดเธเธเนเธฒเนเธเนเธเนเธฒเธขเน€เธเธทเนเธญเธเธ•เนเธ {est_min:,}-{est_max:,} เธเธฒเธ— เนเธฅเธฐเธเธฑเธ”เธฃเธฐเธ”เธฑเธเธเธงเธฒเธกเน€เธฃเนเธเธ”เนเธงเธเน€เธเนเธ \"{urgency}\"."
+            f"สรุปสำหรับงานเคลม: พบความเสียหายบริเวณ {part} ระดับ {result} จากภาพ{mode} {image_count} ภาพ "
+            f"(ความสอดคล้อง {consistency:.2f}%, ความน่าเชื่อถือ {reliability:.2f}%). "
+            f"ประเมินค่าใช้จ่ายเบื้องต้น {est_min:,}-{est_max:,} บาท และจัดระดับความเร่งด่วนเป็น \"{urgency}\"."
         )
     return (
-        f"เธชเธฃเธธเธเน€เธซเธ•เธธเธเธฒเธฃเธ“เน: เธฃเธฐเธเธเธเธฃเธฐเน€เธกเธดเธเธเธงเธฒเธกเน€เธชเธตเธขเธซเธฒเธขเธ•เธณเนเธซเธเนเธ {part} เธญเธขเธนเนเนเธเธฃเธฐเธ”เธฑเธ {result} "
-        f"(confidence {confidence:.2f}%) เธเธฒเธเธ เธฒเธ{mode}เธเธณเธเธงเธ {image_count} เธ เธฒเธ "
-        f"เนเธ”เธขเธกเธตเธเธงเธฒเธกเธชเธญเธ”เธเธฅเนเธญเธเธฃเธฐเธซเธงเนเธฒเธเธกเธธเธกเธกเธญเธ {consistency:.2f}% เนเธฅเธฐเธเธงเธฒเธกเธเนเธฒเน€เธเธทเนเธญเธ–เธทเธญเธเธฅเธฅเธฑเธเธเน {reliability:.2f}%. "
-        f"เธเธธเธ“เธ เธฒเธเธ เธฒเธเธฃเธงเธก {quality_score:.2f} เธเธฐเนเธเธ; เธเธฃเธฐเธกเธฒเธ“เธเนเธฒเนเธเนเธเนเธฒเธข {est_min:,}-{est_max:,} เธเธฒเธ—. "
-        f"เธฃเธฐเธ”เธฑเธเธเธงเธฒเธกเน€เธฃเนเธเธ”เนเธงเธ: {urgency}."
+        f"สรุปเหตุการณ์: ระบบประเมินความเสียหายตำแหน่ง {part} อยู่ในระดับ {result} "
+        f"(confidence {confidence:.2f}%) จากภาพ{mode}จำนวน {image_count} ภาพ "
+        f"โดยมีความสอดคล้องระหว่างมุมมอง {consistency:.2f}% และความน่าเชื่อถือผลลัพธ์ {reliability:.2f}%. "
+        f"คุณภาพภาพรวม {quality_score:.2f} คะแนน; ประมาณค่าใช้จ่าย {est_min:,}-{est_max:,} บาท. "
+        f"ระดับความเร่งด่วน: {urgency}."
     )
 
 
@@ -860,7 +899,7 @@ def incident_summary_from_history_row(row, tone="customer"):
     confidence = float(row.get("confidence") or 0.0)
     result = (row.get("result") or "").lower()
     urgency_label = (
-        "เน€เธฃเนเธเธ”เนเธงเธ" if result == "high" else "เธเธงเธฃเธ”เธณเน€เธเธดเธเธเธฒเธฃเน€เธฃเนเธง" if result == "medium" else "เธ•เธดเธ”เธ•เธฒเธกเนเธ”เน"
+        "เร่งด่วน" if result == "high" else "ควรดำเนินการเร็ว" if result == "medium" else "ติดตามได้"
     )
     ai_insights = {
         "reliability_score": max(0.0, min(100.0, confidence)),
@@ -949,10 +988,10 @@ def calibrate_damage_level(level, confidence, score_gap, entropy):
     lv = (level or "").lower()
     note = None
     if lv == "high" and (confidence < 82 or score_gap < 22 or entropy > 0.72):
-        note = "เธเธฅ high เธ–เธนเธเธเธฃเธฑเธเน€เธเนเธ medium เน€เธเธฃเธฒเธฐเธเธงเธฒเธกเน€เธเธทเนเธญเธกเธฑเนเธ/เธเธงเธฒเธกเธเธฑเธ”เน€เธเธเธขเธฑเธเนเธกเนเธเธญ"
+        note = "ผล high ถูกปรับเป็น medium เพราะความเชื่อมั่น/ความชัดเจนยังไม่พอ"
         return "medium", note
     if lv == "medium" and (confidence < 56 and score_gap < 12 and entropy > 0.92):
-        note = "เธเธฅ medium เธ–เธนเธเธเธฃเธฑเธเน€เธเนเธ low เน€เธเธฃเธฒเธฐเธเธงเธฒเธกเนเธกเนเนเธเนเธเธญเธเธชเธนเธ"
+        note = "ผล medium ถูกปรับเป็น low เพราะความไม่แน่นอนสูง"
         return "low", note
     return lv, note
 
@@ -968,7 +1007,7 @@ def run_analysis_pipeline(user, part, file_storage, extra_files=None, summary_to
     if not valid_files:
         return None, "missing part or file"
     if len(valid_files) > MAX_MULTI_IMAGES:
-        return None, f"เธฃเธญเธเธฃเธฑเธเธเธฒเธฃเธงเธดเน€เธเธฃเธฒเธฐเธซเนเธซเธฅเธฒเธขเธกเธธเธกเธชเธนเธเธชเธธเธ” {MAX_MULTI_IMAGES} เธฃเธนเธเธ•เนเธญเธเธฃเธฑเนเธ"
+        return None, f"รองรับการวิเคราะห์หลายมุมสูงสุด {MAX_MULTI_IMAGES} รูปต่อครั้ง"
 
     current_model = get_model()
     per_image_predictions = []
@@ -984,11 +1023,11 @@ def run_analysis_pipeline(user, part, file_storage, extra_files=None, summary_to
     for i, f in enumerate(valid_files, start=1):
         upload_error = validate_upload(f)
         if upload_error:
-            return None, f"เธ เธฒเธเธ—เธตเน {i}: {upload_error}"
+            return None, f"ภาพที่ {i}: {upload_error}"
         img_pil = Image.open(f.stream).convert("RGB")
         quality_error, notes = assess_image_quality(img_pil)
         if quality_error:
-            return None, f"เธ เธฒเธเธ—เธตเน {i}: {quality_error}"
+            return None, f"ภาพที่ {i}: {quality_error}"
         quality_notes.extend(notes or [])
         metrics = compute_image_advanced_metrics(img_pil)
         tta_batches = build_tta_batches(img_pil)
@@ -1010,11 +1049,11 @@ def run_analysis_pipeline(user, part, file_storage, extra_files=None, summary_to
             if car_prob <= NON_CAR_HARD_BLOCK_MAX_CAR_PROB:
                 return (
                     None,
-                    f"เธ เธฒเธเธ—เธตเน {i}: เธฃเธฐเธเธเธ•เธฃเธงเธเธเธเธงเนเธฒเธญเธฒเธเนเธกเนเนเธเนเธ เธฒเธเธฃเธ– เธเธฃเธธเธ“เธฒเธญเธฑเธเนเธซเธฅเธ”เธ เธฒเธเธฃเธ–เธ—เธตเนเน€เธซเนเธเธเธดเนเธเธชเนเธงเธเธเธฑเธ”เน€เธเธ",
+                    f"ภาพที่ {i}: ระบบตรวจพบว่าอาจไม่ใช่ภาพรถ กรุณาอัปโหลดภาพรถที่เห็นชิ้นส่วนชัดเจน",
                 )
             domain_suspicious = True
             domain_suspicion_notes.append(
-                f"เธ เธฒเธเธ—เธตเน {i} เธญเธฒเธเนเธกเนเน€เธซเนเธเธเธดเนเธเธชเนเธงเธเธฃเธ–เธเธฑเธ” (car probability {car_prob * 100:.1f}%) เธฃเธฐเธเธเธเธฐเธชเนเธเนเธซเนเธเธเธเนเธงเธขเธฃเธตเธงเธดเธง"
+                f"ภาพที่ {i} อาจไม่เห็นชิ้นส่วนรถชัด (car probability {car_prob * 100:.1f}%) ระบบจะส่งให้คนช่วยรีวิว"
             )
 
         tta_scores = []
@@ -1101,12 +1140,12 @@ def run_analysis_pipeline(user, part, file_storage, extra_files=None, summary_to
     if should_block_by_rules:
         return (
             None,
-            "เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เธขเธทเธเธขเธฑเธเธงเนเธฒเน€เธเนเธเธ เธฒเธเธเธงเธฒเธกเน€เธชเธตเธขเธซเธฒเธขเธเธญเธเธฃเธ–เนเธ”เน เธเธฃเธธเธ“เธฒเธญเธฑเธเนเธซเธฅเธ”เธ เธฒเธเธฃเธ–เธ—เธตเนเน€เธซเนเธเธเธดเนเธเธชเนเธงเธเธเธฑเธ”เน€เธเธ",
+            "ไม่สามารถยืนยันว่าเป็นภาพความเสียหายของรถได้ กรุณาอัปโหลดภาพรถที่เห็นชิ้นส่วนชัดเจน",
         )
     if NON_CAR_GUARD_ENABLED and not should_block_by_rules and rule_risk >= 3:
         domain_suspicious = True
-        if "เธ เธฒเธเธเนเธณเธเธฑเนเธเธญเธฒเธเธ—เธณเนเธซเนเธเธฅเธเธฅเธฒเธ”เน€เธเธฅเธทเนเธญเธ เธฃเธฐเธเธเธเธฐเธชเนเธเธฃเธตเธงเธดเธงเน€เธเธดเนเธก" not in quality_notes:
-            quality_notes.append("เธ เธฒเธเธเนเธณเธเธฑเนเธเธญเธฒเธเธ—เธณเนเธซเนเธเธฅเธเธฅเธฒเธ”เน€เธเธฅเธทเนเธญเธ เธฃเธฐเธเธเธเธฐเธชเนเธเธฃเธตเธงเธดเธงเน€เธเธดเนเธก")
+        if "ภาพกำกวมอาจทำให้ผลคลาดเคลื่อน ระบบจะส่งรีวิวเพิ่ม" not in quality_notes:
+            quality_notes.append("ภาพกำกวมอาจทำให้ผลคลาดเคลื่อน ระบบจะส่งรีวิวเพิ่ม")
     if tta_dispersion > MANUAL_REVIEW_MAX_TTA_DISPERSION:
         quality_notes.append(
             f"TTA dispersion สูง ({tta_dispersion:.4f}) อาจเป็นเคสกำกวม แนะนำให้ผู้เชี่ยวชาญตรวจทาน"
@@ -1126,7 +1165,7 @@ def run_analysis_pipeline(user, part, file_storage, extra_files=None, summary_to
     )
     detail = RULES.get(part, {}).get(
         level,
-        {"description": "เนเธกเนเธกเธตเธเนเธญเธกเธนเธฅ", "repair": "เนเธกเนเธกเธตเธเนเธญเธกเธนเธฅ"},
+        {"description": "ไม่มีข้อมูล", "repair": "ไม่มีข้อมูล"},
     )
     est_min, est_max = estimate_cost_range(part, level)
     cost_breakdown = build_cost_breakdown(
@@ -1177,9 +1216,9 @@ def run_analysis_pipeline(user, part, file_storage, extra_files=None, summary_to
     }
     incident_summary = incident_summaries.get(normalized_tone, incident_summaries["customer"])
     incident_summary_labels = {
-        "customer": "เธฅเธนเธเธเนเธฒ",
-        "technical": "เธเนเธฒเธ/เน€เธ—เธเธเธดเธ",
-        "insurance": "เธเธฃเธฐเธเธฑเธ",
+        "customer": "ลูกค้า",
+        "technical": "ช่าง/เทคนิค",
+        "insurance": "ประกัน",
     }
 
     save_dir = os.path.join("feedback_images", level)
@@ -1214,8 +1253,8 @@ def run_analysis_pipeline(user, part, file_storage, extra_files=None, summary_to
     )
     create_notification(
         user["id"],
-        "เธงเธดเน€เธเธฃเธฒเธฐเธซเนเน€เธชเธฃเนเธเนเธฅเนเธง",
-        f"{part}: {level} ({confidence}%) เธเธฃเธฐเธกเธฒเธ“เธเนเธฒเนเธเนเธเนเธฒเธข {est_min:,}-{est_max:,} เธเธฒเธ—",
+        "วิเคราะห์เสร็จแล้ว",
+        f"{part}: {level} ({confidence}%) ประมาณค่าใช้จ่าย {est_min:,}-{est_max:,} บาท",
     )
     manual_review_reasons = []
     if score_gap < MANUAL_REVIEW_SCORE_GAP:
@@ -1254,8 +1293,8 @@ def run_analysis_pipeline(user, part, file_storage, extra_files=None, summary_to
         )
         create_notification(
             user["id"],
-            "เธชเนเธเน€เธเธชเนเธซเนเธเธนเนเธ•เธฃเธงเธเนเธฅเนเธง",
-            f"เน€เธเธช #{review_case_id} เธ–เธนเธเธชเนเธเธ•เธฃเธงเธเธเนเธณเนเธ”เธข reviewer เน€เธเธทเนเธญเธเธเธฒเธเธเธฅเนเธกเนเนเธเนเธเธญเธ",
+            "ส่งเคสให้ผู้ตรวจแล้ว",
+            f"เคส #{review_case_id} ถูกส่งตรวจซ้ำโดย reviewer เนื่องจากผลยังไม่แน่นอน",
         )
         app.logger.info("manual review queued case_id=%s user=%s", review_case_id, user["name"])
 
@@ -1444,6 +1483,11 @@ def get_session_user():
                 "role": auth_row["role"] or "user",
                 "is_active": int(auth_row["is_active"]) == 1,
                 "avatar_path": auth_row.get("avatar_path"),
+                "email": auth_row.get("email"),
+                "age": auth_row.get("age"),
+                "gender": auth_row.get("gender"),
+                "onboarding_done": int(auth_row.get("onboarding_done") or 0) == 1,
+                "email_verified": int(auth_row.get("email_verified") or 0) == 1,
             }
             session["user"] = normalized
             return normalized
@@ -1495,9 +1539,101 @@ def validate_password_policy(password):
         return "รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร"
     if not re.search(r"[A-Za-z]", password or ""):
         return "รหัสผ่านต้องมีตัวอักษรอย่างน้อย 1 ตัว"
-    if not re.search(r"\d", password or ""):
-        return "รหัสผ่านต้องมีตัวเลขอย่างน้อย 1 ตัว"
     return None
+
+
+def validate_email(email):
+    value = (email or "").strip().lower()
+    if not value:
+        return None, "กรุณากรอกอีเมล"
+    if len(value) > 254:
+        return None, "อีเมลยาวเกินไป"
+    if not re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", value):
+        return None, "รูปแบบอีเมลไม่ถูกต้อง"
+    return value, None
+
+
+def normalize_gender(value):
+    raw = (value or "").strip().lower()
+    mapping = {
+        "male": "male",
+        "m": "male",
+        "ชาย": "male",
+        "female": "female",
+        "f": "female",
+        "หญิง": "female",
+        "other": "other",
+        "อื่นๆ": "other",
+        "อื่น": "other",
+    }
+    return mapping.get(raw)
+
+
+def parse_age(value):
+    raw = (value or "").strip()
+    if not raw:
+        return None, "กรุณากรอกอายุ"
+    try:
+        age = int(raw)
+    except ValueError:
+        return None, "อายุต้องเป็นตัวเลข"
+    if age < 10 or age > 120:
+        return None, "อายุต้องอยู่ระหว่าง 10-120 ปี"
+    return age, None
+
+
+def smtp_ready():
+    return bool(SMTP_HOST and SMTP_FROM)
+
+
+def send_email_message(to_email, subject, body_text):
+    if not smtp_ready():
+        raise RuntimeError("SMTP ยังไม่ถูกตั้งค่า")
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM
+    msg["To"] = (to_email or "").strip()
+    msg.set_content(body_text)
+
+    if SMTP_USE_TLS:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+            server.starttls()
+            if SMTP_USERNAME:
+                server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            server.send_message(msg)
+        return
+
+    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+        if SMTP_USERNAME:
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+        server.send_message(msg)
+
+
+def hash_token(raw_token):
+    return hashlib.sha256((raw_token or "").encode("utf-8")).hexdigest()
+
+
+def make_reset_link(token):
+    base = APP_BASE_URL
+    if not base:
+        base = request.url_root.rstrip("/")
+    return f"{base}/reset-password/{token}"
+
+
+def toast_redirect(path, level, message):
+    return redirect(f"{path}?toast={level}:{message}")
+
+
+def parse_toast():
+    raw = (request.args.get("toast") or "").strip()
+    if not raw or ":" not in raw:
+        return None
+    level, text = raw.split(":", 1)
+    level = (level or "").strip().lower()
+    if level not in {"ok", "error", "info"}:
+        level = "info"
+    return {"level": level, "text": text.strip()}
 
 
 def check_analyze_rate_limit(user):
@@ -1511,14 +1647,45 @@ def check_analyze_rate_limit(user):
 
         if len(hits) >= ANALYZE_RATE_LIMIT_COUNT:
             wait_sec = int(ANALYZE_RATE_LIMIT_WINDOW_SEC - (now - hits[0])) + 1
-            return f"เธชเนเธเธเธณเธเธญเธ–เธตเนเน€เธเธดเธเนเธ เธเธฃเธธเธ“เธฒเธฃเธญเธเธฃเธฐเธกเธฒเธ“ {max(wait_sec, 1)} เธงเธดเธเธฒเธ—เธตเนเธฅเนเธงเธฅเธญเธเนเธซเธกเน"
+            return f"ส่งคำขอถี่เกินไป กรุณารอประมาณ {max(wait_sec, 1)} วินาทีแล้วลองใหม่"
 
         hits.append(now)
     return None
 
 
+def _login_rate_limit_key(username):
+    ip = (request.headers.get("X-Forwarded-For", request.remote_addr) or "").split(",")[0].strip()
+    return f"{(username or '').strip().lower()}|{ip}"
+
+
+def check_login_rate_limit(username):
+    key = _login_rate_limit_key(username)
+    now = datetime.now().timestamp()
+    with RATE_LIMIT_LOCK:
+        hits = LOGIN_HITS[key]
+        while hits and (now - hits[0]) > LOGIN_RATE_LIMIT_WINDOW_SEC:
+            hits.popleft()
+        if len(hits) >= LOGIN_RATE_LIMIT_COUNT:
+            wait_sec = int(LOGIN_RATE_LIMIT_WINDOW_SEC - (now - hits[0])) + 1
+            return max(wait_sec, 1)
+    return 0
+
+
+def register_login_attempt(username, success=False):
+    key = _login_rate_limit_key(username)
+    now = datetime.now().timestamp()
+    with RATE_LIMIT_LOCK:
+        hits = LOGIN_HITS[key]
+        if success:
+            if key in LOGIN_HITS:
+                LOGIN_HITS.pop(key, None)
+            return
+        hits.append(now)
+
+
 def render_index(user, **kwargs):
     quick_stats, recent_records = get_dashboard_data(user["id"])
+    profile_data = get_user_profile(user["id"]) or {}
     selected_part = kwargs.get("selected_part") or next(iter(RULES.keys()))
     selected_summary_tone = normalize_summary_tone(kwargs.get("selected_summary_tone"))
     selected_ui_depth_mode = normalize_ui_depth_mode(
@@ -1535,6 +1702,8 @@ def render_index(user, **kwargs):
         "selected_ui_depth_mode": selected_ui_depth_mode,
         "model_version": MODEL_VERSION,
         "max_multi_images": MAX_MULTI_IMAGES,
+        "max_upload_bytes": MAX_UPLOAD_BYTES,
+        "show_onboarding": not bool(profile_data.get("onboarding_done")),
         "selected_case_image_id": kwargs.get("selected_case_image_id"),
     }
     payload.update(kwargs)
@@ -1568,80 +1737,320 @@ def feedback_images(filename):
 @app.route("/login", methods=["GET", "POST"])
 def login():
     warning = None
+    success = None
+    remember_me_checked = False
+    if request.method == "GET" and (request.args.get("notice") or "").strip().lower() == "registered":
+        success = "สมัครสมาชิกสำเร็จ กรุณาเข้าสู่ระบบ"
 
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        mode = request.form.get("mode", "login")
-        avatar_file = request.files.get("avatar")
+        remember_me_checked = request.form.get("remember_me") == "1"
 
         if not username:
-            warning = "เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธเธเธทเนเธญเธเธนเนเนเธเนเธเธฒเธ"
-        elif mode == "register":
-            password_error = validate_password_policy(password)
-            if password_error:
-                warning = password_error
-            else:
-                role = resolve_user_role(username)
-                username_lc = username.strip().lower()
-                if username_lc == ADMIN_USERNAME.strip().lower():
-                    warning = "ชื่อนี้สงวนไว้สำหรับผู้ดูแลระบบ กรุณาใช้ชื่ออื่น"
-                    return render_template("login.html", warning=warning, require_password=True)
-                avatar_path, avatar_error = save_avatar_file(avatar_file, username)
-                if avatar_error:
-                    warning = avatar_error
-                    return render_template("login.html", warning=warning, require_password=True)
-                user, err = create_user(
-                    username=username,
-                    password_hash=generate_password_hash(password),
-                    role=role,
-                    avatar_path=avatar_path,
-                )
-                if err == "username_exists":
-                    warning = "เธเธทเนเธญเธเธนเนเนเธเนเธเธตเนเธกเธตเธญเธขเธนเนเนเธฅเนเธง"
-                else:
-                    session["user"] = user
-                    session["last_seen_ts"] = datetime.now().timestamp()
-                    audit("auth.register", user=user, target="users", details={"username": username})
-                    app.logger.info("register user=%s role=%s", username, role)
-                    return redirect("/")
+            warning = "กรุณาระบุชื่อผู้ใช้งาน"
+        elif not password:
+            warning = "กรุณากรอกรหัสผ่าน"
         else:
+            wait_sec = check_login_rate_limit(username)
+            if wait_sec:
+                warning = f"ลองเข้าสู่ระบบผิดหลายครั้ง กรุณารอ {wait_sec} วินาทีแล้วลองใหม่"
+                return render_template(
+                    "login.html",
+                    warning=warning,
+                    require_password=True,
+                    remember_me_checked=remember_me_checked,
+                )
             auth_row = get_user_auth(username)
             if auth_row:
                 if int(auth_row["is_active"]) != 1:
-                    warning = "เธเธฑเธเธเธตเธ–เธนเธเธเธดเธ”เธเธฒเธฃเนเธเนเธเธฒเธ"
+                    warning = "บัญชีถูกปิดการใช้งาน"
                 elif not auth_row.get("password_hash"):
                     warning = "บัญชีนี้ยังไม่ได้ตั้งรหัสผ่าน กรุณาติดต่อแอดมินเพื่อรีเซ็ตรหัสผ่าน"
-                elif not password:
-                    warning = "เธเธฃเธธเธ“เธฒเธเธฃเธญเธเธฃเธซเธฑเธชเธเนเธฒเธ"
                 else:
                     try:
                         valid_password = check_password_hash(auth_row["password_hash"], password)
                     except ValueError:
                         valid_password = False
                     if not valid_password:
-                        warning = "เธฃเธซเธฑเธชเธเนเธฒเธเนเธกเนเธ–เธนเธเธ•เนเธญเธ"
+                        register_login_attempt(username, success=False)
+                        warning = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"
                     else:
+                        register_login_attempt(username, success=True)
                         user = {
                             "id": auth_row["id"],
                             "name": auth_row["username"],
                             "role": auth_row["role"] or "user",
                             "is_active": int(auth_row["is_active"]) == 1,
                             "avatar_path": auth_row.get("avatar_path"),
+                            "email": auth_row.get("email"),
+                            "age": auth_row.get("age"),
+                            "gender": auth_row.get("gender"),
+                            "onboarding_done": int(auth_row.get("onboarding_done") or 0) == 1,
+                            "email_verified": int(auth_row.get("email_verified") or 0) == 1,
                         }
+                        session.permanent = bool(remember_me_checked)
                         session["user"] = user
                         session["last_seen_ts"] = datetime.now().timestamp()
                         audit("auth.login", user=user, target="session")
                         app.logger.info("login user=%s role=%s", username, user["role"])
                         return redirect("/")
             else:
-                warning = "ไม่พบบัญชีผู้ใช้ กรุณาสมัครสมาชิกก่อนเข้าสู่ระบบ"
+                register_login_attempt(username, success=False)
+                warning = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"
 
     return render_template(
         "login.html",
         warning=warning,
+        success=success,
         require_password=True,
+        remember_me_checked=remember_me_checked,
     )
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    warning = None
+    form_data = {
+        "username": "",
+        "email": "",
+        "age": "",
+        "gender": "",
+        "accept_terms": False,
+    }
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        email_raw = request.form.get("email", "").strip()
+        age_raw = request.form.get("age", "").strip()
+        gender_raw = request.form.get("gender", "").strip()
+        accept_terms = request.form.get("accept_terms") == "1"
+        avatar_file = request.files.get("avatar")
+        form_data.update(
+            {
+                "username": username,
+                "email": email_raw,
+                "age": age_raw,
+                "gender": gender_raw,
+                "accept_terms": accept_terms,
+            }
+        )
+
+        if not username:
+            warning = "กรุณาระบุชื่อผู้ใช้งาน"
+        elif username.strip().lower() == ADMIN_USERNAME.strip().lower():
+            warning = "ชื่อนี้สงวนไว้สำหรับผู้ดูแลระบบ กรุณาใช้ชื่ออื่น"
+        elif password != confirm_password:
+            warning = "รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน"
+        elif not accept_terms:
+            warning = "กรุณายอมรับเงื่อนไขการใช้งานก่อนสมัครสมาชิก"
+        else:
+            password_error = validate_password_policy(password)
+            if password_error:
+                warning = password_error
+
+        email_norm = None
+        age = None
+        gender = None
+        if warning is None:
+            email_norm, email_error = validate_email(email_raw)
+            if email_error:
+                warning = email_error
+        if warning is None:
+            age, age_error = parse_age(age_raw)
+            if age_error:
+                warning = age_error
+        if warning is None:
+            gender = normalize_gender(gender_raw)
+            if gender is None:
+                warning = "กรุณาเลือกเพศ"
+        if warning is None and email_in_use(email_norm):
+            warning = "อีเมลนี้ถูกใช้งานแล้ว"
+        if warning is None and (avatar_file is None or not (avatar_file.filename or "").strip()):
+            warning = "กรุณาเลือกรูปโปรไฟล์"
+
+        avatar_path = None
+        if warning is None:
+            avatar_path, avatar_error = save_avatar_file(avatar_file, username)
+            if avatar_error:
+                warning = avatar_error
+
+        if warning is None:
+            role = resolve_user_role(username)
+            user, err = create_user(
+                username=username,
+                password_hash=generate_password_hash(password),
+                role=role,
+                avatar_path=avatar_path,
+                email=email_norm,
+                age=age,
+                gender=gender,
+            )
+            if err == "username_exists":
+                warning = "ชื่อผู้ใช้นี้มีอยู่แล้ว"
+            else:
+                audit(
+                    "auth.register",
+                    user=user,
+                    target="users",
+                    details={"username": username, "email": email_norm, "age": age, "gender": gender},
+                )
+                app.logger.info("register user=%s role=%s", username, role)
+                if email_norm and smtp_ready():
+                    try:
+                        subject = "สมัครสมาชิก AutoScope AI สำเร็จ"
+                        send_email_message(
+                            email_norm,
+                            subject,
+                            (
+                                f"สวัสดี {username}\n\n"
+                                "บัญชีของคุณถูกสร้างเรียบร้อยแล้วในระบบ AutoScope AI\n"
+                                "คุณสามารถเข้าสู่ระบบและใช้งานการวิเคราะห์ได้ทันที\n\n"
+                                "ขอบคุณที่ใช้งานระบบ"
+                            ),
+                        )
+                        add_email_log(
+                            user["id"],
+                            email_norm,
+                            subject,
+                            "sent",
+                            meta={"event": "register_welcome"},
+                        )
+                    except Exception as err_send:
+                        app.logger.warning("register email send failed user=%s err=%s", username, err_send)
+                        add_email_log(
+                            user["id"],
+                            email_norm,
+                            subject,
+                            "failed",
+                            error_text=str(err_send),
+                            meta={"event": "register_welcome"},
+                        )
+                session.clear()
+                return redirect("/login?notice=registered")
+
+    return render_template("register.html", warning=warning, form_data=form_data)
+
+
+@app.route("/api/auth/register-check")
+def api_register_check():
+    username = (request.args.get("username") or "").strip()
+    email_value = (request.args.get("email") or "").strip()
+    result = {"ok": True}
+
+    if username:
+        reserved = username.lower() == ADMIN_USERNAME.strip().lower()
+        exists = get_user_auth(username) is not None
+        if reserved:
+            result["username"] = {"valid": False, "message": "ชื่อนี้สงวนไว้สำหรับระบบ"}
+        elif exists:
+            result["username"] = {"valid": False, "message": "ชื่อผู้ใช้นี้ถูกใช้งานแล้ว"}
+        else:
+            result["username"] = {"valid": True, "message": "ชื่อผู้ใช้สามารถใช้งานได้"}
+
+    if email_value:
+        email_norm, email_error = validate_email(email_value)
+        if email_error:
+            result["email"] = {"valid": False, "message": email_error}
+        elif email_in_use(email_norm):
+            result["email"] = {"valid": False, "message": "อีเมลนี้ถูกใช้งานแล้ว"}
+        else:
+            result["email"] = {"valid": True, "message": "อีเมลสามารถใช้งานได้"}
+
+    return jsonify(result)
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    warning = None
+    success = None
+    email_value = ""
+    if request.method == "POST":
+        email_value = (request.form.get("email") or "").strip()
+        email_norm, email_error = validate_email(email_value)
+        if email_error:
+            warning = email_error
+        elif not smtp_ready():
+            warning = "ระบบยังไม่ตั้งค่า SMTP สำหรับส่งอีเมลรีเซ็ตรหัสผ่าน"
+        else:
+            user_row = get_user_by_email(email_norm)
+            success = "ถ้าอีเมลนี้อยู่ในระบบ เราได้ส่งลิงก์รีเซ็ตรหัสผ่านให้แล้ว"
+            if user_row and user_row.get("is_active"):
+                raw_token = secrets.token_urlsafe(32)
+                token_hash = hash_token(raw_token)
+                expires_at = (datetime.now() + timedelta(minutes=PASSWORD_RESET_TOKEN_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+                create_password_reset_token(user_row["id"], token_hash, expires_at)
+                reset_link = make_reset_link(raw_token)
+                subject = "รีเซ็ตรหัสผ่าน AutoScope AI"
+                body = (
+                    f"สวัสดี {user_row['name']}\n\n"
+                    f"คุณได้ขอรีเซ็ตรหัสผ่าน กรุณากดลิงก์นี้ภายใน {PASSWORD_RESET_TOKEN_MINUTES} นาที:\n"
+                    f"{reset_link}\n\n"
+                    "หากคุณไม่ได้เป็นผู้ขอ สามารถละเว้นอีเมลฉบับนี้ได้"
+                )
+                try:
+                    send_email_message(email_norm, subject, body)
+                    add_email_log(user_row["id"], email_norm, subject, "sent", meta={"event": "forgot_password"})
+                except Exception as err:
+                    app.logger.warning("forgot password email send failed email=%s err=%s", email_norm, err)
+                    add_email_log(
+                        user_row["id"],
+                        email_norm,
+                        subject,
+                        "failed",
+                        error_text=str(err),
+                        meta={"event": "forgot_password"},
+                    )
+    return render_template("forgot_password.html", warning=warning, success=success, email_value=email_value)
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    warning = None
+    success = None
+    token_hash = hash_token(token)
+    token_row = get_password_reset_token(token_hash)
+
+    if not token_row:
+        warning = "ลิงก์รีเซ็ตไม่ถูกต้องหรือหมดอายุแล้ว"
+        return render_template("reset_password.html", warning=warning, success=success)
+
+    if token_row.get("consumed_at"):
+        warning = "ลิงก์นี้ถูกใช้งานไปแล้ว"
+        return render_template("reset_password.html", warning=warning, success=success)
+
+    try:
+        expires_at = datetime.strptime(token_row["expires_at"], "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        expires_at = datetime.now() - timedelta(minutes=1)
+    if datetime.now() > expires_at:
+        warning = "ลิงก์นี้หมดอายุแล้ว กรุณาขอลิงก์ใหม่"
+        return render_template("reset_password.html", warning=warning, success=success)
+
+    if request.method == "POST":
+        new_password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        password_error = validate_password_policy(new_password)
+        if password_error:
+            warning = password_error
+        elif new_password != confirm_password:
+            warning = "รหัสผ่านใหม่และยืนยันรหัสผ่านไม่ตรงกัน"
+        else:
+            user_profile = get_user_profile(token_row["user_id"])
+            if not user_profile:
+                warning = "ไม่พบบัญชีผู้ใช้"
+            else:
+                set_user_password(user_profile["username"], generate_password_hash(new_password))
+                consume_password_reset_token(token_hash)
+                success = "รีเซ็ตรหัสผ่านสำเร็จแล้ว กรุณาเข้าสู่ระบบด้วยรหัสใหม่"
+                audit(
+                    "auth.password_reset",
+                    user={"id": user_profile["id"], "name": user_profile["username"]},
+                    target=f"user:{user_profile['id']}",
+                )
+    return render_template("reset_password.html", warning=warning, success=success)
 
 
 # ================== LOGOUT ==================
@@ -1710,7 +2119,7 @@ def index(user):
             else:
                 return render_index(
                     user,
-                    warning="??????????????????????????",
+                    warning="ไม่พบรูปจากเคสที่เลือก",
                     selected_part=part,
                     selected_summary_tone=summary_tone,
                     selected_ui_depth_mode=ui_depth_mode,
@@ -1721,7 +2130,7 @@ def index(user):
         if not part or not file:
             return render_index(
                 user,
-                warning="???????????????????????????????????????",
+                warning="กรุณาเลือกตำแหน่งและเลือกรูปอย่างน้อย 1 รูป",
                 selected_part=part,
                 selected_summary_tone=summary_tone,
                 selected_ui_depth_mode=ui_depth_mode,
@@ -1731,7 +2140,7 @@ def index(user):
         if part not in RULES:
             return render_index(
                 user,
-                warning="????????????????????????????",
+                warning="ตำแหน่งที่เลือกไม่ถูกต้อง",
                 selected_part=part,
                 selected_summary_tone=summary_tone,
                 selected_ui_depth_mode=ui_depth_mode,
@@ -1752,6 +2161,7 @@ def index(user):
             )
 
         try:
+            analyze_start = time.perf_counter()
             result_payload, pipeline_error = run_analysis_pipeline(
                 user, part, file, extra_files=files[1:], summary_tone=summary_tone
             )
@@ -1765,6 +2175,7 @@ def index(user):
                     selected_case=selected_case,
                     selected_case_image_id=selected_case_image_id,
                 )
+            result_payload["inference_seconds"] = round(time.perf_counter() - analyze_start, 2)
 
             if selected_case and result_payload.get("image_path"):
                 note = (
@@ -1772,6 +2183,12 @@ def index(user):
                     f"confidence={result_payload.get('confidence')}%"
                 )
                 add_case_image(selected_case["id"], user["id"], result_payload["image_path"], note=note)
+                set_case_prediction(
+                    selected_case["id"],
+                    user["id"],
+                    result_payload.get("result"),
+                    result_payload.get("confidence"),
+                )
 
             audit(
                 "analyze.submit",
@@ -1807,7 +2224,7 @@ def index(user):
         except UnidentifiedImageError:
             return render_index(
                 user,
-                warning="?????????????????????????????????????????",
+                warning="ไฟล์รูปไม่ถูกต้องหรือไม่สามารถอ่านรูปได้",
                 selected_part=part,
                 selected_summary_tone=summary_tone,
                 selected_ui_depth_mode=ui_depth_mode,
@@ -1818,7 +2235,7 @@ def index(user):
             app.logger.exception("analyze error: %s", err)
             return render_index(
                 user,
-                warning=f"????????????????????????????: {err}",
+                warning=f"เกิดข้อผิดพลาดระหว่างวิเคราะห์: {err}",
                 selected_part=part,
                 selected_summary_tone=summary_tone,
                 selected_ui_depth_mode=ui_depth_mode,
@@ -1854,6 +2271,26 @@ def history(user):
     result = (request.args.get("result") or "").strip()
     date_from = (request.args.get("date_from") or "").strip()
     date_to = (request.args.get("date_to") or "").strip()
+    sort = (request.args.get("sort") or "date_desc").strip().lower()
+    if sort not in {"date_desc", "date_asc", "confidence_desc", "confidence_asc", "severity_desc", "severity_asc"}:
+        sort = "date_desc"
+    try:
+        page = int(request.args.get("page") or "1")
+    except ValueError:
+        page = 1
+    page = max(1, page)
+    page_size = 15
+    total = count_user_history(
+        user["id"],
+        part=part or None,
+        result=result or None,
+        date_from=date_from or None,
+        date_to=date_to or None,
+    )
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+    offset = (page - 1) * page_size
 
     records = get_user_history(
         user["id"],
@@ -1861,33 +2298,138 @@ def history(user):
         result=result or None,
         date_from=date_from or None,
         date_to=date_to or None,
+        sort_by=sort,
+        limit=page_size,
+        offset=offset,
     )
+    summary = get_user_history_summary(
+        user["id"],
+        part=part or None,
+        date_from=date_from or None,
+        date_to=date_to or None,
+    )
+    page_start = 1 if total == 0 else offset + 1
+    page_end = min(offset + page_size, total)
     return render_template(
         "history.html",
         username=user["name"],
         is_admin=is_admin_user(user),
         records=records,
+        summary=summary,
         filters={
             "part": part,
             "result": result,
             "date_from": date_from,
             "date_to": date_to,
+            "sort": sort,
+            "page": page,
+        },
+        paging={
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages,
+            "start": page_start,
+            "end": page_end,
+            "has_prev": page > 1,
+            "has_next": page < total_pages,
+            "prev_page": page - 1 if page > 1 else 1,
+            "next_page": page + 1 if page < total_pages else total_pages,
         },
         filter_options={
             "parts": list(RULES.keys()),
             "results": ["low", "medium", "high"],
+            "sorts": [
+                {"value": "date_desc", "label": "วันที่ล่าสุด"},
+                {"value": "date_asc", "label": "วันที่เก่าสุด"},
+                {"value": "confidence_desc", "label": "ความมั่นใจมากไปน้อย"},
+                {"value": "confidence_asc", "label": "ความมั่นใจน้อยไปมาก"},
+                {"value": "severity_desc", "label": "Severity สูงไปต่ำ"},
+                {"value": "severity_asc", "label": "Severity ต่ำไปสูง"},
+            ],
         },
     )
 
 
-# ================== PROFILE ==================
-@app.route("/profile")
+@app.route("/history/<int:history_id>")
 @require_login
-def profile(user):
+def history_detail(user, history_id):
+    summary_tone = normalize_summary_tone(request.args.get("summary_tone"))
+    row = get_user_history_item(user["id"], history_id)
+    if not row:
+        return redirect("/history")
+    incident_summary = incident_summary_from_history_row(row, summary_tone)
+    return render_template(
+        "report.html",
+        username=user["name"],
+        is_admin=is_admin_user(user),
+        row=row,
+        summary_tone=summary_tone,
+        incident_summary=incident_summary,
+        toast=parse_toast(),
+    )
+
+
+# ================== PROFILE ==================
+def build_case_summary(case_data, tone="customer"):
+    tone = normalize_summary_tone(tone)
+    case_id = case_data.get("id")
+    title = case_data.get("title") or "-"
+    vehicle_info = case_data.get("vehicle_info") or "-"
+    status = case_data.get("status") or "-"
+    predicted = case_data.get("predicted_result") or "-"
+    confidence = case_data.get("predicted_confidence")
+    final_result = case_data.get("final_result") or "-"
+    reviewer_note = case_data.get("reviewer_note") or "-"
+    reviewed_at = case_data.get("reviewed_at") or "-"
+    image_count = len(case_data.get("images") or [])
+
+    if tone == "technical":
+        return (
+            f"[CASE #{case_id}] title={title}, status={status}, vehicle={vehicle_info}, "
+            f"predicted={predicted}, confidence={confidence if confidence is not None else '-'}%, "
+            f"final_result={final_result}, reviewed_at={reviewed_at}, images={image_count}, "
+            f"reviewer_note={reviewer_note}."
+        )
+    if tone == "insurance":
+        return (
+            f"สรุปเคส #{case_id}: {title} | สถานะ {status} | รถ {vehicle_info} | "
+            f"ผลประเมินเดิม {predicted} (confidence {confidence if confidence is not None else '-'}%) | "
+            f"ผลยืนยัน {final_result} | จำนวนรูปในเคส {image_count} | หมายเหตุผู้ตรวจ {reviewer_note}"
+        )
+    return (
+        f"สรุปเคส #{case_id}\n"
+        f"- หัวข้อ: {title}\n"
+        f"- รถ: {vehicle_info}\n"
+        f"- สถานะ: {status}\n"
+        f"- ผลประเมินเดิม: {predicted} (ความมั่นใจ {confidence if confidence is not None else '-'}%)\n"
+        f"- ผลยืนยัน: {final_result}\n"
+        f"- จำนวนรูปในเคส: {image_count}\n"
+        f"- หมายเหตุจากผู้ตรวจ: {reviewer_note}"
+    )
+
+
+def render_profile_page(
+    user,
+    avatar_warning=None,
+    email_warning=None,
+    email_success=None,
+    email_form=None,
+):
     total, last_time = get_profile_summary(user["id"])
     insights = get_profile_insights(user["id"])
     recent = get_user_history(user["id"], limit=5)
-
+    cases = list_user_cases(user["id"], limit=50)
+    profile_data = get_user_profile(user["id"]) or {}
+    email_logs = list_user_email_logs(user["id"], limit=15)
+    last_email_log = get_last_user_email_log(user["id"])
+    form_payload = {
+        "scope": "latest",
+        "tone": "customer",
+        "case_id": "",
+    }
+    if email_form:
+        form_payload.update(email_form)
     return render_template(
         "profile.html",
         username=user["name"],
@@ -1896,7 +2438,135 @@ def profile(user):
         last_time=last_time,
         insights=insights,
         recent_records=recent,
+        user_cases=cases,
+        email_logs=email_logs,
+        last_email_log=last_email_log,
+        profile_data=profile_data,
+        avatar_warning=avatar_warning,
+        email_warning=email_warning,
+        email_success=email_success,
+        email_form=form_payload,
+        smtp_ready=smtp_ready(),
+        toast=parse_toast(),
     )
+
+
+@app.route("/profile")
+@require_login
+def profile(user):
+    return render_profile_page(user)
+
+
+@app.route("/profile/update", methods=["POST"])
+@require_login
+def profile_update(user):
+    email_raw = request.form.get("email", "")
+    age_raw = request.form.get("age", "")
+    gender_raw = request.form.get("gender", "")
+
+    email_norm, email_error = validate_email(email_raw)
+    if email_error:
+        return render_profile_page(user, email_warning=email_error)
+    age, age_error = parse_age(age_raw)
+    if age_error:
+        return render_profile_page(user, email_warning=age_error)
+    gender = normalize_gender(gender_raw)
+    if gender is None:
+        return render_profile_page(user, email_warning="กรุณาเลือกเพศให้ถูกต้อง")
+    if email_in_use(email_norm, exclude_user_id=user["id"]):
+        return render_profile_page(user, email_warning="อีเมลนี้ถูกใช้งานแล้ว")
+
+    old_email = (user.get("email") or "").strip().lower()
+    set_user_profile(user["id"], email=email_norm, age=age, gender=gender)
+    if old_email != email_norm:
+        set_email_verified(user["id"], verified=False)
+        user["email_verified"] = False
+    user["email"] = email_norm
+    user["age"] = age
+    user["gender"] = gender
+    session["user"] = user
+    audit(
+        "profile.update",
+        user=user,
+        target=f"user:{user['id']}",
+        details={"email": email_norm, "age": age, "gender": gender},
+    )
+    return render_profile_page(user, email_success="อัปเดตข้อมูลส่วนตัวแล้ว")
+
+
+@app.route("/profile/email-verify/send", methods=["POST"])
+@require_login
+def profile_email_verify_send(user):
+    profile_data = get_user_profile(user["id"]) or {}
+    to_email = (profile_data.get("email") or "").strip().lower()
+    if not to_email:
+        return render_profile_page(user, email_warning="กรุณาตั้งค่าอีเมลก่อนยืนยัน")
+    if profile_data.get("email_verified"):
+        return render_profile_page(user, email_success="อีเมลนี้ยืนยันแล้ว")
+    if not smtp_ready():
+        return render_profile_page(user, email_warning="ระบบยังไม่ตั้งค่า SMTP สำหรับส่งรหัสยืนยัน")
+
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    code_hash = hash_token(code)
+    expires_at = (datetime.now() + timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+    create_email_verify_code(user["id"], code_hash, expires_at)
+
+    subject = "รหัสยืนยันอีเมล AutoScope AI"
+    body = (
+        f"สวัสดี {user['name']}\n\n"
+        f"รหัสยืนยันอีเมลของคุณคือ: {code}\n"
+        "รหัสนี้มีอายุ 10 นาที\n\n"
+        "หากคุณไม่ได้เป็นผู้ดำเนินการ โปรดละเว้นอีเมลฉบับนี้"
+    )
+    try:
+        send_email_message(to_email, subject, body)
+        add_email_log(user["id"], to_email, subject, "sent", meta={"event": "email_verify_send"})
+        return render_profile_page(user, email_success=f"ส่งรหัสยืนยันไปที่ {to_email} แล้ว")
+    except Exception as err:
+        add_email_log(
+            user["id"],
+            to_email,
+            subject,
+            "failed",
+            error_text=str(err),
+            meta={"event": "email_verify_send"},
+        )
+        return render_profile_page(user, email_warning="ส่งรหัสยืนยันไม่สำเร็จ")
+
+
+@app.route("/profile/email-verify/confirm", methods=["POST"])
+@require_login
+def profile_email_verify_confirm(user):
+    input_code = (request.form.get("verify_code") or "").strip()
+    if not re.fullmatch(r"\d{6}", input_code):
+        return render_profile_page(user, email_warning="กรุณากรอกรหัสยืนยัน 6 หลัก")
+    latest_code = get_latest_active_email_verify_code(user["id"])
+    if not latest_code:
+        return render_profile_page(user, email_warning="ไม่พบรหัสยืนยันที่ใช้งานได้ กรุณาขอรหัสใหม่")
+    try:
+        expires_at = datetime.strptime(latest_code["expires_at"], "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        expires_at = datetime.now() - timedelta(minutes=1)
+    if datetime.now() > expires_at:
+        return render_profile_page(user, email_warning="รหัสยืนยันหมดอายุแล้ว กรุณาขอรหัสใหม่")
+    if hash_token(input_code) != latest_code.get("code_hash"):
+        return render_profile_page(user, email_warning="รหัสยืนยันไม่ถูกต้อง")
+    consume_email_verify_code(latest_code["id"])
+    set_email_verified(user["id"], verified=True)
+    user["email_verified"] = True
+    session["user"] = user
+    audit("profile.email_verified", user=user, target=f"user:{user['id']}")
+    return render_profile_page(user, email_success="ยืนยันอีเมลสำเร็จแล้ว")
+
+
+@app.route("/profile/onboarding-done", methods=["POST"])
+@require_login
+def profile_onboarding_done(user):
+    set_onboarding_done(user["id"], done=True)
+    user["onboarding_done"] = True
+    session["user"] = user
+    audit("profile.onboarding_done", user=user, target=f"user:{user['id']}")
+    return jsonify({"ok": True})
 
 
 @app.route("/profile/avatar", methods=["POST"])
@@ -1906,19 +2576,7 @@ def profile_avatar_upload(user):
     old_avatar = user.get("avatar_path")
     avatar_path, avatar_error = save_avatar_file(avatar_file, user["name"])
     if avatar_error:
-        total, last_time = get_profile_summary(user["id"])
-        insights = get_profile_insights(user["id"])
-        recent = get_user_history(user["id"], limit=5)
-        return render_template(
-            "profile.html",
-            username=user["name"],
-            is_admin=is_admin_user(user),
-            total=total,
-            last_time=last_time,
-            insights=insights,
-            recent_records=recent,
-            avatar_warning=avatar_error,
-        )
+        return render_profile_page(user, avatar_warning=avatar_error)
     if avatar_path:
         set_user_avatar(user["id"], avatar_path)
         user["avatar_path"] = avatar_path
@@ -1927,6 +2585,90 @@ def profile_avatar_upload(user):
             cleanup_avatar_file(old_avatar)
         audit("profile.avatar.update", user=user, target="users")
     return redirect("/profile")
+
+
+@app.route("/profile/email-summary", methods=["POST"])
+@require_login
+def profile_email_summary(user):
+    summary_scope = (request.form.get("summary_scope") or "latest").strip().lower()
+    summary_tone = normalize_summary_tone(request.form.get("summary_tone"))
+    case_id_raw = (request.form.get("case_id") or "").strip()
+    email_form = {
+        "scope": summary_scope,
+        "tone": summary_tone,
+        "case_id": case_id_raw,
+    }
+    ok, msg = send_summary_email_for_user(
+        user,
+        scope=summary_scope,
+        tone=summary_tone,
+        case_id=case_id_raw if case_id_raw else None,
+    )
+    if ok:
+        return render_profile_page(user, email_success=msg, email_form=email_form)
+    return render_profile_page(user, email_warning=msg, email_form=email_form)
+
+
+def send_summary_email_for_user(user, scope, tone, case_id=None):
+    profile_data = get_user_profile(user["id"]) or {}
+    to_email = (profile_data.get("email") or "").strip()
+    if not to_email:
+        return False, "บัญชีนี้ยังไม่ได้ตั้งค่าอีเมล"
+    if not smtp_ready():
+        return False, "ระบบยังไม่ตั้งค่า SMTP สำหรับส่งอีเมล"
+
+    scope = (scope or "latest").strip().lower()
+    tone = normalize_summary_tone(tone)
+    case_id_raw = str(case_id).strip() if case_id is not None else ""
+    subject = "สรุปผลจาก AutoScope AI"
+    body = ""
+    if scope == "case":
+        if not case_id_raw.isdigit():
+            return False, "กรุณาเลือกเคสก่อนส่งอีเมล"
+        case_data = get_case_detail(int(case_id_raw), user["id"])
+        if not case_data:
+            return False, "ไม่พบข้อมูลเคสที่เลือก"
+        subject = f"สรุปเคส #{int(case_id_raw):06d} จาก AutoScope AI"
+        body = (
+            f"สวัสดี {user['name']}\n\n"
+            f"{build_case_summary(case_data, tone)}\n\n"
+            "หมายเหตุ: ข้อมูลนี้ใช้ประกอบการประเมินเบื้องต้น ควรยืนยันหน้างานก่อนซ่อมจริง"
+        )
+    else:
+        latest = get_user_history(user["id"], limit=1)
+        if not latest:
+            return False, "ยังไม่มีข้อมูลวิเคราะห์สำหรับส่งอีเมล"
+        row = latest[0]
+        subject = "สรุปผลวิเคราะห์ล่าสุดจาก AutoScope AI"
+        body = (
+            f"สวัสดี {user['name']}\n\n"
+            f"{incident_summary_from_history_row(row, tone)}\n\n"
+            f"ข้อมูลอ้างอิง: วันที่ {row.get('datetime')} | ตำแหน่ง {row.get('part')} | "
+            f"ผล {row.get('result')} | confidence {row.get('confidence')}%\n"
+            "หมายเหตุ: ผลนี้เป็นการประเมินเบื้องต้นจาก AI ควรตรวจยืนยันโดยผู้เชี่ยวชาญก่อนซ่อมจริง"
+        )
+    try:
+        send_email_message(to_email, subject, body)
+        add_email_log(
+            user["id"],
+            to_email,
+            subject,
+            "sent",
+            meta={"scope": scope, "tone": tone, "case_id": case_id_raw or None},
+        )
+        audit("email.summary.send", user=user, target=to_email, details={"scope": scope, "tone": tone, "case_id": case_id_raw or None})
+        return True, f"ส่งสรุปแบบ {scope} ({tone}) ไปที่ {to_email} แล้ว"
+    except Exception as err:
+        add_email_log(
+            user["id"],
+            to_email,
+            subject,
+            "failed",
+            error_text=str(err),
+            meta={"scope": scope, "tone": tone, "case_id": case_id_raw or None},
+        )
+        app.logger.warning("summary email send failed user=%s email=%s err=%s", user["name"], to_email, err)
+        return False, "ส่งอีเมลไม่สำเร็จ กรุณาตรวจสอบการตั้งค่า SMTP"
 
 
 # ================== ADMIN ==================
@@ -2107,15 +2849,15 @@ def export_csv(user):
         writer = csv.writer(header)
         writer.writerow(
             [
-                "เธงเธฑเธเธ—เธตเน",
-                "เธเธทเนเธญเธเธนเนเนเธเน",
-                "เธ•เธณเนเธซเธเนเธ",
-                "เธเธฅ",
-                "เธเธงเธฒเธกเธกเธฑเนเธเนเธ",
-                "เธฃเธฐเธ”เธฑเธเธเธงเธฒเธกเน€เธเธทเนเธญเธกเธฑเนเธ",
-                "เธฃเธนเธ",
-                "เนเธ—เธเธชเธฃเธธเธ",
-                "เธชเธฃเธธเธเน€เธซเธ•เธธเธเธฒเธฃเธ“เน",
+                "วันที่",
+                "ชื่อผู้ใช้",
+                "ตำแหน่ง",
+                "ผล",
+                "ความมั่นใจ",
+                "ระดับความเชื่อมั่น",
+                "รูป",
+                "โทนสรุป",
+                "สรุปเหตุการณ์",
             ]
         )
         yield "\ufeff" + header.getvalue()
@@ -2174,12 +2916,23 @@ def report_latest(user):
         row=rows[0],
         summary_tone=summary_tone,
         incident_summary=incident_summary,
+        toast=parse_toast(),
     )
+
+
+@app.route("/report/latest/email", methods=["POST"])
+@require_login
+def report_latest_email(user):
+    summary_tone = normalize_summary_tone(request.form.get("summary_tone"))
+    ok, msg = send_summary_email_for_user(user, scope="latest", tone=summary_tone)
+    if ok:
+        return toast_redirect(f"/report/latest?summary_tone={summary_tone}", "ok", msg)
+    return toast_redirect(f"/report/latest?summary_tone={summary_tone}", "error", msg)
 
 
 def render_report_pdf_bytes(user_name, row, summary_tone="customer", incident_summary=None):
     lines = [
-        "CarDamage AI - Latest Analysis Report",
+        "AutoScope AI - Latest Analysis Report",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"User: {user_name}",
         f"Summary Tone: {summary_tone}",
@@ -2304,6 +3057,9 @@ def feedback(user):
 @require_login
 def cases_page(user):
     cases = list_user_cases(user["id"], limit=100)
+    favorite_ids = set(list_user_favorite_case_ids(user["id"]))
+    for row in cases:
+        row["is_favorite"] = int(row.get("id", 0)) in favorite_ids
     review_cases = list_cases_for_review(limit=150) if is_reviewer_user(user) else []
     return render_template(
         "cases.html",
@@ -2311,7 +3067,9 @@ def cases_page(user):
         is_admin=is_admin_user(user),
         is_reviewer=is_reviewer_user(user),
         cases=cases,
+        favorite_ids=favorite_ids,
         review_cases=review_cases,
+        toast=parse_toast(),
     )
 
 
@@ -2321,13 +3079,36 @@ def case_detail_page(user, case_id):
     case_data = get_case_detail(case_id, user["id"])
     if not case_data:
         return redirect("/cases")
+    case_data["is_favorite"] = is_case_favorite(user["id"], case_id)
     return render_template(
         "case_detail.html",
         username=user["name"],
         is_admin=is_admin_user(user),
         is_reviewer=is_reviewer_user(user),
         case_data=case_data,
+        toast=parse_toast(),
     )
+
+
+@app.route("/cases/<int:case_id>/email-summary", methods=["POST"])
+@require_login
+def case_email_summary(user, case_id):
+    summary_tone = normalize_summary_tone(request.form.get("summary_tone"))
+    ok, msg = send_summary_email_for_user(user, scope="case", tone=summary_tone, case_id=case_id)
+    if ok:
+        return toast_redirect(f"/cases/{case_id}", "ok", msg)
+    return toast_redirect(f"/cases/{case_id}", "error", msg)
+
+
+@app.route("/api/cases/<int:case_id>/favorite", methods=["POST"])
+@api_require_login
+def api_case_favorite_toggle(user, case_id):
+    case_row = get_case_detail(case_id, user["id"])
+    if not case_row:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+    is_fav = toggle_case_favorite(user["id"], case_id)
+    audit("case.favorite.toggle", user=user, target=f"case:{case_id}", details={"is_favorite": is_fav})
+    return jsonify({"ok": True, "case_id": case_id, "is_favorite": is_fav})
 
 
 @app.route("/api/cases", methods=["GET", "POST"])
@@ -2339,7 +3120,7 @@ def api_cases(user):
         if not title:
             return jsonify({"ok": False, "error": "title_required"}), 400
         case_id = create_case(user["id"], title, vehicle_info)
-        create_notification(user["id"], "เธชเธฃเนเธฒเธเน€เธเธชเนเธซเธกเน", f"เน€เธเธช #{case_id} เธ–เธนเธเธชเธฃเนเธฒเธเนเธฅเนเธง")
+        create_notification(user["id"], "สร้างเคสใหม่", f"เคส #{case_id} ถูกสร้างแล้ว")
         audit("case.create", user=user, target=f"case:{case_id}")
         return jsonify({"ok": True, "case_id": case_id, "case_code": f"{case_id:06d}"}), 201
 
@@ -2361,6 +3142,29 @@ def api_case_detail(user, case_id):
     return jsonify({"ok": True, "case": data})
 
 
+@app.route("/api/cases/<int:case_id>/delete", methods=["POST"])
+@api_require_login
+def api_case_delete(user, case_id):
+    payload = delete_case(user["id"], case_id)
+    if not payload:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+    removed = 0
+    for path in payload.get("image_paths", []):
+        try:
+            if path and os.path.exists(path):
+                os.remove(path)
+                removed += 1
+        except OSError:
+            pass
+    audit(
+        "case.delete",
+        user=user,
+        target=f"case:{case_id}",
+        details={"deleted_images": removed},
+    )
+    return jsonify({"ok": True, "case_id": case_id, "deleted_images": removed})
+
+
 @app.route("/api/cases/<int:case_id>/images", methods=["POST"])
 @api_require_login
 def api_case_add_image(user, case_id):
@@ -2378,7 +3182,11 @@ def api_case_add_image(user, case_id):
     name = datetime.now().strftime("%Y%m%d_%H%M%S") + ".jpg"
     path = os.path.join(folder, name).replace("\\", "/")
     Image.open(file.stream).convert("RGB").save(path, format="JPEG")
-    add_case_image(case_id, user["id"], path, request.form.get("note"))
+    note = (request.form.get("note") or "").strip()
+    image_type = (request.form.get("image_type") or "").strip()
+    if image_type:
+        note = f"[{image_type}] {note}".strip()
+    add_case_image(case_id, user["id"], path, note)
     audit("case.image.add", user=user, target=f"case:{case_id}")
     return jsonify({"ok": True, "image_path": path})
 
@@ -2421,8 +3229,8 @@ def api_case_review(user, case_id):
 
     create_notification(
         case_row["user_id"],
-        "เธเธฅเธฃเธตเธงเธดเธงเน€เธเธชเธเธฃเนเธญเธกเนเธฅเนเธง",
-        f"เน€เธเธช #{case_id} เนเธ”เนเธเธฅเธขเธทเธเธขเธฑเธ: {final_result}",
+        "ผลรีวิวเคสพร้อมแล้ว",
+        f"เคส #{case_id} ได้ผลยืนยัน: {final_result}",
     )
     audit(
         "case.review",
@@ -2529,7 +3337,7 @@ def api_analyze(user):
 
     if request.args.get("async") == "1":
         if len(files) > 1:
-            return jsonify({"ok": False, "error": "async mode เธฃเธญเธเธฃเธฑเธเธเธฃเธฑเนเธเธฅเธฐ 1 เธฃเธนเธเน€เธ—เนเธฒเธเธฑเนเธ"}), 400
+            return jsonify({"ok": False, "error": "async mode รองรับครั้งละ 1 รูปเท่านั้น"}), 400
         ensure_worker_started()
         job_id = uuid.uuid4().hex
         upload_error = validate_upload(file)
@@ -2634,6 +3442,7 @@ if __name__ == "__main__":
         port=port,
         debug=os.getenv("FLASK_DEBUG", "false").lower() == "true",
     )
+
 
 
 

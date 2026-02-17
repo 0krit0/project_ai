@@ -1,4 +1,4 @@
-﻿// CarDamage AI - Service Worker (Basic PWA)
+﻿// AutoScope AI - Service Worker (Basic PWA)
 
 self.addEventListener('install', event => {
   console.log('[Service Worker] Installed');
@@ -20,3 +20,4 @@ self.addEventListener('fetch', event => {
     })
   );
 });
+

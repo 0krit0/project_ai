@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CarDamage AI</title>
+<title>AutoScope AI</title>
 <link rel="stylesheet" href="/static/ui.css">
 </head>
 <body>
 {% if not session.get("user") %}
   <main class="auth-wrap">
     <section class="auth-card">
-      <h1 class="auth-title">CarDamage AI</h1>
+      <h1 class="auth-title">AutoScope AI</h1>
       <p class="auth-sub">ระบบประเมินความเสียหายรถยนต์ด้วย AI</p>
       <a class="btn primary block" href="/login">เข้าสู่ระบบ</a>
     </section>
@@ -18,7 +18,7 @@
 {% else %}
   <div class="page">
     <aside class="sidebar">
-      <div class="brand">CarDamage AI</div>
+      <div class="brand">AutoScope AI</div>
       <div class="tagline">เครื่องมือประเมินความเสียหายเบื้องต้น</div>
       <div class="sidebar-profile">
         {% if session.get("user") and session.user.avatar_path %}
@@ -50,6 +50,19 @@
         <h1>วิเคราะห์ความเสียหายรถยนต์</h1>
         <p>ใส่รูป เลือกตำแหน่ง แล้วดูผลประเมินเบื้องต้นแบบเข้าใจง่าย</p>
       </header>
+      {% if show_onboarding %}
+      <section class="card soft" id="onboardingCard">
+        <h3>เริ่มใช้งานครั้งแรก (3 ขั้นตอน)</h3>
+        <ul class="advice-list">
+          <li>1) เลือกตำแหน่งชิ้นส่วนรถและอัปโหลดรูปที่ชัดเจน</li>
+          <li>2) ดูผลพร้อมความมั่นใจ/ค่าใช้จ่าย และใช้โหมดสรุปที่เหมาะกับงาน</li>
+          <li>3) ถ้าต้องการส่งต่อ ให้ไปหน้าโปรไฟล์แล้วส่งสรุปเข้าอีเมล</li>
+        </ul>
+        <div class="inline-actions">
+          <button class="btn ghost" type="button" id="dismissOnboardingBtn">รับทราบ</button>
+        </div>
+      </section>
+      {% endif %}
       <section class="quick-flow">
         <div class="quick-step"><b>1</b> เลือกตำแหน่ง</div>
         <div class="quick-step"><b>2</b> อัปโหลดรูป</div>
@@ -82,6 +95,7 @@
             <label for="file">รูปความเสียหาย</label>
             <input id="file" type="file" name="file" accept="image/*" multiple>
             <p class="helper">รองรับหลายมุมสูงสุด {{ max_multi_images or 4 }} รูปต่อครั้ง เพื่อให้ AI รวมผลและเช็คความสอดคล้อง</p>
+            <div id="uploadPrecheck" class="helper"></div>
             {% if selected_case and selected_case.images %}
             <label for="case_image_id">หรือเลือกรูปที่มีในเคสนี้</label>
             <select id="case_image_id" name="case_image_id">
@@ -104,7 +118,7 @@
             <input id="ui_depth_mode" type="hidden" name="ui_depth_mode" value="{{ selected_ui_depth_mode or 'easy' }}">
 
             <div class="inline-actions">
-              <button class="btn primary" type="submit" id="analyzeBtn">วิเคราะห์ทันที</button>
+              <button class="btn primary analyze-cta" type="submit" id="analyzeBtn">AI วิเคราะห์ทันที</button>
               <span class="helper">ใช้เวลาประมวลผลประมาณ 1-3 วินาที</span>
             </div>
           </form>
@@ -430,6 +444,9 @@
               {% if model_version %}
               <p class="helper">โมเดลที่ใช้: <span class="mono">{{ model_version }}</span></p>
               {% endif %}
+              {% if inference_seconds is not none %}
+              <p class="helper">เวลา inference: <span class="mono">{{ inference_seconds }}s</span></p>
+              {% endif %}
               <button id="copySnapshotBtn" class="btn ghost" type="button">คัดลอกสรุป</button>
             </section>
 
@@ -512,9 +529,11 @@
           <article id="previewCard" class="card rail-card rail-sticky">
             <h3>ตัวอย่างรูปที่กำลังใช้งาน</h3>
             <img id="previewImage" class="preview-image {% if not image_path %}is-empty{% endif %}" {% if image_path %}src="/{{ image_path }}"{% endif %} alt="preview">
-            {% if not image_path %}
-            <p id="previewHint" class="empty-preview">ยังไม่ได้เลือกรูป</p>
-            {% endif %}
+            <div id="previewPlaceholder" class="preview-placeholder {% if image_path %}is-hidden{% endif %}">
+              <div class="car-silhouette">CAR</div>
+              <p id="previewHint" class="empty-preview">ยังไม่ได้เลือกรูป</p>
+              <p class="helper">รองรับไฟล์ JPG / PNG / WEBP ขนาดไม่เกิน {{ (max_upload_bytes // (1024 * 1024)) if max_upload_bytes else 5 }}MB</p>
+            </div>
           </article>
 
           <details class="card rail-card compact-details">
@@ -558,6 +577,13 @@
       </section>
     </main>
   </div>
+  <div id="analyzeLoadingOverlay" class="loading-overlay" hidden>
+    <div class="loading-box">
+      <div class="spinner" aria-hidden="true"></div>
+      <div class="loading-title">AI กำลังวิเคราะห์...</div>
+      <div class="helper">กำลังประมวลผลภาพและสรุปผล โปรดรอสักครู่</div>
+    </div>
+  </div>
 {% endif %}
 
 <script>
@@ -567,6 +593,11 @@
   const fileInput = document.getElementById('file');
   const previewImage = document.getElementById('previewImage');
   const previewHint = document.getElementById('previewHint');
+  const previewPlaceholder = document.getElementById('previewPlaceholder');
+  const analyzeLoadingOverlay = document.getElementById('analyzeLoadingOverlay');
+  const uploadPrecheck = document.getElementById('uploadPrecheck');
+  const dismissOnboardingBtn = document.getElementById('dismissOnboardingBtn');
+  const onboardingCard = document.getElementById('onboardingCard');
   const copySnapshotBtn = document.getElementById('copySnapshotBtn');
   const analysisSnapshot = document.getElementById('analysisSnapshot');
   const caseImageSelect = document.getElementById('case_image_id');
@@ -592,20 +623,73 @@
       }
       analyzeBtn.disabled = true;
       analyzeBtn.textContent = 'กำลังวิเคราะห์...';
+      if (analyzeLoadingOverlay) analyzeLoadingOverlay.hidden = false;
     });
   }
 
   if (fileInput && previewImage) {
-    fileInput.addEventListener('change', function (e) {
-      const file = e.target.files && e.target.files[0];
+    fileInput.addEventListener('change', async function (e) {
+      const files = Array.from((e.target.files || []));
+      const file = files[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = function (event) {
         previewImage.src = event.target.result;
         previewImage.classList.remove('is-empty');
         if (previewHint) previewHint.style.display = 'none';
+        if (previewPlaceholder) previewPlaceholder.classList.add('is-hidden');
       };
       reader.readAsDataURL(file);
+
+      if (uploadPrecheck) {
+        const maxBytes = Number('{{ max_upload_bytes or 0 }}');
+        const msgs = [];
+        if (maxBytes > 0) {
+          const tooLarge = files.filter(function (f) { return f.size > maxBytes; });
+          if (tooLarge.length) {
+            msgs.push('บางไฟล์ใหญ่เกินกำหนด ' + Math.floor(maxBytes / (1024 * 1024)) + 'MB');
+          }
+        }
+        const dimChecks = await Promise.all(files.slice(0, 2).map(function (f) {
+          return new Promise(function (resolve) {
+            const url = URL.createObjectURL(f);
+            const img = new Image();
+            img.onload = function () {
+              const small = img.width < 160 || img.height < 160;
+              URL.revokeObjectURL(url);
+              resolve({ name: f.name, small: small, width: img.width, height: img.height });
+            };
+            img.onerror = function () {
+              URL.revokeObjectURL(url);
+              resolve({ name: f.name, small: false, width: 0, height: 0 });
+            };
+            img.src = url;
+          });
+        }));
+        dimChecks.forEach(function (x) {
+          if (x.small) {
+            msgs.push('ไฟล์ ' + x.name + ' มีขนาดเล็ก (' + x.width + 'x' + x.height + ')');
+          }
+        });
+        if (!msgs.length) {
+          uploadPrecheck.textContent = 'ตรวจภาพเบื้องต้น: พร้อมวิเคราะห์';
+          uploadPrecheck.style.color = '#1f8f4f';
+        } else {
+          uploadPrecheck.textContent = 'ตรวจภาพเบื้องต้น: ' + msgs.join(' | ');
+          uploadPrecheck.style.color = '#b45309';
+        }
+      }
+    });
+  }
+
+  if (dismissOnboardingBtn && onboardingCard) {
+    dismissOnboardingBtn.addEventListener('click', async function () {
+      try {
+        const r = await fetch('/profile/onboarding-done', { method: 'POST' });
+        if (r.ok) onboardingCard.style.display = 'none';
+      } catch (err) {
+        onboardingCard.style.display = 'none';
+      }
     });
   }
 
@@ -752,3 +836,4 @@
 </script>
 </body>
 </html>
+

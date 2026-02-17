@@ -169,6 +169,59 @@ def init_db():
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token_hash TEXT UNIQUE NOT NULL,
+            expires_at TEXT NOT NULL,
+            consumed_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS email_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            to_email TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            status TEXT NOT NULL,
+            error_text TEXT,
+            meta TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS email_verify_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            code_hash TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            consumed_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS case_favorites (
+            user_id INTEGER NOT NULL,
+            case_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(user_id, case_id),
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(case_id) REFERENCES cases(id)
+        )
+        """
+    )
 
     # Online migrations for existing databases.
     user_cols = table_columns(conn, "users")
@@ -180,6 +233,16 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
     if "avatar_path" not in user_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN avatar_path TEXT")
+    if "email" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN email TEXT")
+    if "age" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN age INTEGER")
+    if "gender" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT")
+    if "onboarding_done" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN onboarding_done INTEGER NOT NULL DEFAULT 0")
+    if "email_verified" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
 
     history_cols = table_columns(conn, "history")
     if "model_version" not in history_cols:
@@ -214,6 +277,8 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at)"
     )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_onboarding_done ON users(onboarding_done)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cases_user_created ON cases(user_id, created_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cases_status_updated ON cases(status, updated_at)")
     cursor.execute(
@@ -221,6 +286,18 @@ def init_db():
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON analysis_jobs(user_id, status, created_at)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reset_tokens_user_exp ON password_reset_tokens(user_id, expires_at)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_email_logs_user_created ON email_logs(user_id, created_at)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_email_verify_user_exp ON email_verify_codes(user_id, expires_at)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_case_fav_case ON case_favorites(case_id)"
     )
 
     cursor.execute(
@@ -348,7 +425,7 @@ def get_or_create_user(username):
     cur = conn.cursor()
 
     cur.execute(
-        "SELECT id, username, role, is_active, avatar_path FROM users WHERE username = ?",
+        "SELECT id, username, role, is_active, avatar_path, email, age, gender, onboarding_done, email_verified FROM users WHERE username = ?",
         (username,),
     )
     row = cur.fetchone()
@@ -356,8 +433,8 @@ def get_or_create_user(username):
     if row is None:
         cur.execute(
             """
-            INSERT INTO users (username, created_at, last_login, role, is_active)
-            VALUES (?, ?, ?, 'user', 1)
+            INSERT INTO users (username, created_at, last_login, role, is_active, onboarding_done)
+            VALUES (?, ?, ?, 'user', 1, 0)
             """,
             (username, now, now),
         )
@@ -368,7 +445,7 @@ def get_or_create_user(username):
 
     conn.commit()
     cur.execute(
-        "SELECT id, username, role, is_active, avatar_path FROM users WHERE id = ?",
+        "SELECT id, username, role, is_active, avatar_path, email, age, gender, onboarding_done, email_verified FROM users WHERE id = ?",
         (user_id,),
     )
     user = cur.fetchone()
@@ -379,6 +456,11 @@ def get_or_create_user(username):
         "role": user["role"] or "user",
         "is_active": int(user["is_active"]) == 1,
         "avatar_path": normalize_image_path(user["avatar_path"]),
+        "email": user["email"],
+        "age": user["age"],
+        "gender": user["gender"],
+        "onboarding_done": int(user["onboarding_done"] or 0) == 1,
+        "email_verified": int(user["email_verified"] or 0) == 1,
     }
 
 
@@ -387,7 +469,7 @@ def get_user_auth(username):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT id, username, password_hash, role, is_active, avatar_path
+        SELECT id, username, password_hash, role, is_active, avatar_path, email, age, gender, onboarding_done, email_verified
         FROM users
         WHERE username = ?
         """,
@@ -398,22 +480,32 @@ def get_user_auth(username):
     return dict(row) if row else None
 
 
-def create_user(username, password_hash, role="user", avatar_path=None):
+def create_user(username, password_hash, role="user", avatar_path=None, email=None, age=None, gender=None):
     now = now_str()
     conn = get_db()
     cur = conn.cursor()
     try:
         cur.execute(
             """
-            INSERT INTO users (username, password_hash, role, is_active, avatar_path, created_at, last_login)
-            VALUES (?, ?, ?, 1, ?, ?, ?)
+            INSERT INTO users (username, password_hash, role, is_active, avatar_path, email, age, gender, onboarding_done, email_verified, created_at, last_login)
+            VALUES (?, ?, ?, 1, ?, ?, ?, ?, 0, 0, ?, ?)
             """,
-            (username, password_hash, role, normalize_image_path(avatar_path), now, now),
+            (
+                username,
+                password_hash,
+                role,
+                normalize_image_path(avatar_path),
+                (email or "").strip().lower() or None,
+                int(age) if age is not None else None,
+                (gender or "").strip().lower() or None,
+                now,
+                now,
+            ),
         )
         user_id = cur.lastrowid
         conn.commit()
         cur.execute(
-            "SELECT id, username, role, is_active, avatar_path FROM users WHERE id = ?",
+            "SELECT id, username, role, is_active, avatar_path, email, age, gender, onboarding_done, email_verified FROM users WHERE id = ?",
             (user_id,),
         )
         row = cur.fetchone()
@@ -423,6 +515,11 @@ def create_user(username, password_hash, role="user", avatar_path=None):
             "role": row["role"] or "user",
             "is_active": int(row["is_active"]) == 1,
             "avatar_path": normalize_image_path(row["avatar_path"]),
+            "email": row["email"],
+            "age": row["age"],
+            "gender": row["gender"],
+            "onboarding_done": int(row["onboarding_done"] or 0) == 1,
+            "email_verified": int(row["email_verified"] or 0) == 1,
         }, None
     except sqlite3.IntegrityError:
         return None, "username_exists"
@@ -454,6 +551,329 @@ def set_user_avatar(user_id, avatar_path):
     conn.commit()
     conn.close()
     return changed > 0
+
+
+def get_user_profile(user_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, username, role, is_active, avatar_path, email, age, gender, onboarding_done, email_verified
+        FROM users
+        WHERE id = ?
+        """,
+        (int(user_id),),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "role": row["role"] or "user",
+        "is_active": int(row["is_active"]) == 1,
+        "avatar_path": normalize_image_path(row["avatar_path"]),
+        "email": row["email"],
+        "age": row["age"],
+        "gender": row["gender"],
+        "onboarding_done": int(row["onboarding_done"] or 0) == 1,
+        "email_verified": int(row["email_verified"] or 0) == 1,
+    }
+
+
+def email_in_use(email, exclude_user_id=None):
+    norm_email = (email or "").strip().lower()
+    if not norm_email:
+        return False
+    conn = get_db()
+    cur = conn.cursor()
+    if exclude_user_id is None:
+        cur.execute("SELECT 1 FROM users WHERE lower(email) = lower(?) LIMIT 1", (norm_email,))
+    else:
+        cur.execute(
+            "SELECT 1 FROM users WHERE lower(email) = lower(?) AND id <> ? LIMIT 1",
+            (norm_email, int(exclude_user_id)),
+        )
+    row = cur.fetchone()
+    conn.close()
+    return row is not None
+
+
+def set_user_profile(user_id, email=None, age=None, gender=None):
+    sets = []
+    params = []
+    if email is not None:
+        sets.append("email = ?")
+        params.append((email or "").strip().lower() or None)
+    if age is not None:
+        sets.append("age = ?")
+        params.append(int(age))
+    if gender is not None:
+        sets.append("gender = ?")
+        params.append((gender or "").strip().lower() or None)
+    if not sets:
+        return False
+    conn = get_db()
+    cur = conn.cursor()
+    params.append(int(user_id))
+    cur.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", tuple(params))
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+def set_onboarding_done(user_id, done=True):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET onboarding_done = ? WHERE id = ?", (1 if done else 0, int(user_id)))
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+def get_user_by_email(email):
+    value = (email or "").strip().lower()
+    if not value:
+        return None
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, username, role, is_active, avatar_path, email, age, gender, onboarding_done, email_verified
+        FROM users
+        WHERE lower(email) = lower(?)
+        LIMIT 1
+        """,
+        (value,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "name": row["username"],
+        "role": row["role"] or "user",
+        "is_active": int(row["is_active"]) == 1,
+        "avatar_path": normalize_image_path(row["avatar_path"]),
+        "email": row["email"],
+        "age": row["age"],
+        "gender": row["gender"],
+        "onboarding_done": int(row["onboarding_done"] or 0) == 1,
+        "email_verified": int(row["email_verified"] or 0) == 1,
+    }
+
+
+def create_password_reset_token(user_id, token_hash, expires_at):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, consumed_at, created_at)
+        VALUES (?, ?, ?, NULL, ?)
+        """,
+        (int(user_id), token_hash, expires_at, now_str()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_password_reset_token(token_hash):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, user_id, token_hash, expires_at, consumed_at, created_at
+        FROM password_reset_tokens
+        WHERE token_hash = ?
+        LIMIT 1
+        """,
+        (token_hash,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def consume_password_reset_token(token_hash):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE password_reset_tokens SET consumed_at = ? WHERE token_hash = ? AND consumed_at IS NULL",
+        (now_str(), token_hash),
+    )
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+def add_email_log(user_id, to_email, subject, status, error_text=None, meta=None):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO email_logs (user_id, to_email, subject, status, error_text, meta, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            int(user_id) if user_id is not None else None,
+            (to_email or "").strip(),
+            (subject or "").strip(),
+            (status or "").strip().lower(),
+            error_text,
+            serialize_details(meta),
+            now_str(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_user_email_logs(user_id, limit=20):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, to_email, subject, status, error_text, meta, created_at
+        FROM email_logs
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (int(user_id), int(limit)),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_last_user_email_log(user_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, to_email, subject, status, error_text, meta, created_at
+        FROM email_logs
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (int(user_id),),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def create_email_verify_code(user_id, code_hash, expires_at):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO email_verify_codes (user_id, code_hash, expires_at, consumed_at, created_at)
+        VALUES (?, ?, ?, NULL, ?)
+        """,
+        (int(user_id), code_hash, expires_at, now_str()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_latest_active_email_verify_code(user_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, user_id, code_hash, expires_at, consumed_at, created_at
+        FROM email_verify_codes
+        WHERE user_id = ? AND consumed_at IS NULL
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (int(user_id),),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def consume_email_verify_code(code_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE email_verify_codes SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL",
+        (now_str(), int(code_id)),
+    )
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+def set_email_verified(user_id, verified=True):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET email_verified = ? WHERE id = ?",
+        (1 if verified else 0, int(user_id)),
+    )
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+def is_case_favorite(user_id, case_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT 1 FROM case_favorites WHERE user_id = ? AND case_id = ? LIMIT 1",
+        (int(user_id), int(case_id)),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row is not None
+
+
+def toggle_case_favorite(user_id, case_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT 1 FROM case_favorites WHERE user_id = ? AND case_id = ? LIMIT 1",
+        (int(user_id), int(case_id)),
+    )
+    row = cur.fetchone()
+    if row:
+        cur.execute(
+            "DELETE FROM case_favorites WHERE user_id = ? AND case_id = ?",
+            (int(user_id), int(case_id)),
+        )
+        conn.commit()
+        conn.close()
+        return False
+    cur.execute(
+        "INSERT INTO case_favorites (user_id, case_id, created_at) VALUES (?, ?, ?)",
+        (int(user_id), int(case_id), now_str()),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def list_user_favorite_case_ids(user_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT case_id FROM case_favorites WHERE user_id = ? ORDER BY created_at DESC",
+        (int(user_id),),
+    )
+    rows = [int(r["case_id"]) for r in cur.fetchall()]
+    conn.close()
+    return rows
 
 
 def add_history(
@@ -516,13 +936,39 @@ def add_feedback(user_id, result, confidence, is_correct, comment, image_path):
     conn.close()
 
 
+def _build_history_filters(user_id, part=None, result=None, date_from=None, date_to=None):
+    where = " WHERE user_id = ?"
+    params = [int(user_id)]
+    if part:
+        where += " AND part = ?"
+        params.append(part)
+    if result:
+        where += " AND result = ?"
+        params.append(result)
+    if date_from:
+        where += " AND created_at >= ?"
+        params.append(f"{date_from} 00:00:00")
+    if date_to:
+        where += " AND created_at <= ?"
+        params.append(f"{date_to} 23:59:59")
+    return where, params
+
+
 def get_user_history(
-    user_id, part=None, result=None, date_from=None, date_to=None, limit=None
+    user_id,
+    part=None,
+    result=None,
+    date_from=None,
+    date_to=None,
+    limit=None,
+    offset=None,
+    sort_by="date_desc",
 ):
     conn = get_db()
     cur = conn.cursor()
     query = """
         SELECT
+            id,
             created_at AS datetime,
             part,
             result,
@@ -533,33 +979,126 @@ def get_user_history(
             est_cost_min,
             est_cost_max
         FROM history
-        WHERE user_id = ?
     """
-    params = [user_id]
+    where, params = _build_history_filters(
+        user_id,
+        part=part,
+        result=result,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    query += where
 
-    if part:
-        query += " AND part = ?"
-        params.append(part)
-    if result:
-        query += " AND result = ?"
-        params.append(result)
-    if date_from:
-        query += " AND created_at >= ?"
-        params.append(f"{date_from} 00:00:00")
-    if date_to:
-        query += " AND created_at <= ?"
-        params.append(f"{date_to} 23:59:59")
+    if sort_by == "confidence_desc":
+        query += " ORDER BY confidence DESC, created_at DESC"
+    elif sort_by == "confidence_asc":
+        query += " ORDER BY confidence ASC, created_at DESC"
+    elif sort_by == "severity_desc":
+        query += (
+            " ORDER BY CASE result "
+            "WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END DESC, created_at DESC"
+        )
+    elif sort_by == "severity_asc":
+        query += (
+            " ORDER BY CASE result "
+            "WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END ASC, created_at DESC"
+        )
+    elif sort_by == "date_asc":
+        query += " ORDER BY created_at ASC"
+    else:
+        query += " ORDER BY created_at DESC"
 
-    query += " ORDER BY created_at DESC"
     if limit is not None:
         query += " LIMIT ?"
         params.append(int(limit))
+    if offset is not None:
+        query += " OFFSET ?"
+        params.append(int(offset))
     cur.execute(query, tuple(params))
     rows = [dict(r) for r in cur.fetchall()]
     for row in rows:
         row["image_path"] = normalize_image_path(row.get("image_path"))
     conn.close()
     return rows
+
+
+def count_user_history(user_id, part=None, result=None, date_from=None, date_to=None):
+    conn = get_db()
+    cur = conn.cursor()
+    where, params = _build_history_filters(
+        user_id,
+        part=part,
+        result=result,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    cur.execute(f"SELECT COUNT(*) AS c FROM history{where}", tuple(params))
+    row = cur.fetchone()
+    conn.close()
+    return int((row or {"c": 0})["c"] or 0)
+
+
+def get_user_history_summary(user_id, part=None, date_from=None, date_to=None):
+    conn = get_db()
+    cur = conn.cursor()
+    where, params = _build_history_filters(
+        user_id,
+        part=part,
+        result=None,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    cur.execute(
+        f"""
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN result = 'high' THEN 1 ELSE 0 END) AS high_count,
+            SUM(CASE WHEN result = 'medium' THEN 1 ELSE 0 END) AS medium_count,
+            SUM(CASE WHEN result = 'low' THEN 1 ELSE 0 END) AS low_count
+        FROM history
+        {where}
+        """,
+        tuple(params),
+    )
+    row = dict(cur.fetchone() or {})
+    conn.close()
+    return {
+        "total": int(row.get("total") or 0),
+        "high": int(row.get("high_count") or 0),
+        "medium": int(row.get("medium_count") or 0),
+        "low": int(row.get("low_count") or 0),
+    }
+
+
+def get_user_history_item(user_id, history_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            id,
+            created_at AS datetime,
+            part,
+            result,
+            confidence,
+            trust,
+            image_path,
+            model_version,
+            est_cost_min,
+            est_cost_max
+        FROM history
+        WHERE id = ? AND user_id = ?
+        LIMIT 1
+        """,
+        (int(history_id), int(user_id)),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    payload = dict(row)
+    payload["image_path"] = normalize_image_path(payload.get("image_path"))
+    return payload
 
 
 def get_profile_summary(user_id):
@@ -605,8 +1144,27 @@ def get_profile_insights(user_id):
     part_row = cur.fetchone()
     top_part = part_row["part"] if part_row else "-"
 
+    cur.execute(
+        """
+        SELECT
+            SUM(CASE WHEN result = 'high' THEN 1 ELSE 0 END) AS high_count,
+            SUM(CASE WHEN result = 'medium' THEN 1 ELSE 0 END) AS medium_count,
+            SUM(CASE WHEN result = 'low' THEN 1 ELSE 0 END) AS low_count
+        FROM history
+        WHERE user_id = ?
+        """,
+        (user_id,),
+    )
+    result_row = cur.fetchone() or {}
+
     conn.close()
-    return {"avg_conf": avg_conf, "top_part": top_part}
+    return {
+        "avg_conf": avg_conf,
+        "top_part": top_part,
+        "high_count": int(result_row["high_count"] or 0),
+        "medium_count": int(result_row["medium_count"] or 0),
+        "low_count": int(result_row["low_count"] or 0),
+    }
 
 
 def get_dashboard_data(user_id):
@@ -824,7 +1382,12 @@ def list_user_cases(user_id, limit=50):
             reviewed_by,
             reviewed_at,
             created_at,
-            updated_at
+            updated_at,
+            (
+                SELECT COUNT(1)
+                FROM case_images ci
+                WHERE ci.case_id = cases.id
+            ) AS image_count
         FROM cases
         WHERE user_id = ?
         ORDER BY updated_at DESC
@@ -835,6 +1398,40 @@ def list_user_cases(user_id, limit=50):
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
+
+
+def delete_case(user_id, case_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id
+        FROM cases
+        WHERE id = ? AND user_id = ?
+        """,
+        (int(case_id), int(user_id)),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    cur.execute(
+        """
+        SELECT image_path
+        FROM case_images
+        WHERE case_id = ? AND user_id = ?
+        """,
+        (int(case_id), int(user_id)),
+    )
+    image_paths = [normalize_image_path(r["image_path"]) for r in cur.fetchall()]
+
+    cur.execute("DELETE FROM case_images WHERE case_id = ? AND user_id = ?", (int(case_id), int(user_id)))
+    cur.execute("DELETE FROM case_favorites WHERE case_id = ? AND user_id = ?", (int(case_id), int(user_id)))
+    cur.execute("DELETE FROM cases WHERE id = ? AND user_id = ?", (int(case_id), int(user_id)))
+    conn.commit()
+    conn.close()
+    return {"case_id": int(case_id), "image_paths": image_paths}
 
 
 def list_cases_for_review(limit=100):
@@ -914,6 +1511,27 @@ def add_case_image(case_id, user_id, image_path, note=None):
         (case_id, user_id, normalize_image_path(image_path), note, now_str()),
     )
     cur.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_str(), case_id))
+    conn.commit()
+    conn.close()
+
+
+def set_case_prediction(case_id, user_id, predicted_result, predicted_confidence):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE cases
+        SET predicted_result = ?, predicted_confidence = ?, updated_at = ?
+        WHERE id = ? AND user_id = ?
+        """,
+        (
+            (predicted_result or "").strip().lower() or None,
+            float(predicted_confidence) if predicted_confidence is not None else None,
+            now_str(),
+            int(case_id),
+            int(user_id),
+        ),
+    )
     conn.commit()
     conn.close()
 
