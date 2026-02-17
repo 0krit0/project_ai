@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: car-damage-ai
+    runtime: python
+    plan: starter
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    startCommand: waitress-serve --host=0.0.0.0 --port=$PORT app:app
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: FLASK_DEBUG
+        value: "false"
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: DB_NAME
+        value: /var/data/app.db
+      - key: MODEL_VERSION
+        value: damage_model.h5
+      - key: APP_LOG_PATH
+        value: run.app.log
+      - key: INLINE_WORKER_ENABLED
+        value: "true"
+      - key: QUEUE_BACKEND
+        value: local
+      - key: NON_CAR_MODEL_ENABLED
+        value: "false"

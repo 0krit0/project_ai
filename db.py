@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 from datetime import datetime
 
-DB_NAME = "app.db"
+DB_NAME = os.getenv("DB_NAME", "app.db")
 
 
 def now_str():
@@ -113,9 +113,16 @@ def init_db():
             title TEXT NOT NULL,
             vehicle_info TEXT,
             status TEXT NOT NULL DEFAULT 'open',
+            predicted_result TEXT,
+            predicted_confidence REAL,
+            final_result TEXT,
+            reviewer_note TEXT,
+            reviewed_by INTEGER,
+            reviewed_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(reviewed_by) REFERENCES users(id)
         )
         """
     )
@@ -183,6 +190,19 @@ def init_db():
         cursor.execute("ALTER TABLE history ADD COLUMN est_cost_min INTEGER")
     if "est_cost_max" not in history_cols:
         cursor.execute("ALTER TABLE history ADD COLUMN est_cost_max INTEGER")
+    case_cols = table_columns(conn, "cases")
+    if "predicted_result" not in case_cols:
+        cursor.execute("ALTER TABLE cases ADD COLUMN predicted_result TEXT")
+    if "predicted_confidence" not in case_cols:
+        cursor.execute("ALTER TABLE cases ADD COLUMN predicted_confidence REAL")
+    if "final_result" not in case_cols:
+        cursor.execute("ALTER TABLE cases ADD COLUMN final_result TEXT")
+    if "reviewer_note" not in case_cols:
+        cursor.execute("ALTER TABLE cases ADD COLUMN reviewer_note TEXT")
+    if "reviewed_by" not in case_cols:
+        cursor.execute("ALTER TABLE cases ADD COLUMN reviewed_by INTEGER")
+    if "reviewed_at" not in case_cols:
+        cursor.execute("ALTER TABLE cases ADD COLUMN reviewed_at TEXT")
 
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_history_user_created ON history(user_id, created_at)"
@@ -195,6 +215,7 @@ def init_db():
     )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cases_user_created ON cases(user_id, created_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cases_status_updated ON cases(status, updated_at)")
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read, created_at)"
     )
@@ -272,6 +293,53 @@ def get_recent_audit_logs(limit=50):
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
+
+
+def count_admin_users():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND is_active = 1")
+    value = int(cur.fetchone()["c"] or 0)
+    conn.close()
+    return value
+
+
+def list_users_basic(limit=300):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, username, role, is_active, created_at, last_login
+        FROM users
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (int(limit),),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def update_user_role_status(user_id, role=None, is_active=None):
+    if role is None and is_active is None:
+        return False
+    conn = get_db()
+    cur = conn.cursor()
+    sets = []
+    params = []
+    if role is not None:
+        sets.append("role = ?")
+        params.append(role)
+    if is_active is not None:
+        sets.append("is_active = ?")
+        params.append(1 if int(is_active) == 1 else 0)
+    params.append(int(user_id))
+    cur.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", tuple(params))
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed > 0
 
 
 def get_or_create_user(username):
@@ -704,16 +772,34 @@ def restore_database_from_upload(file_storage):
     return None
 
 
-def create_case(user_id, title, vehicle_info=None):
+def create_case(
+    user_id,
+    title,
+    vehicle_info=None,
+    status="open",
+    predicted_result=None,
+    predicted_confidence=None,
+):
     now = now_str()
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO cases (user_id, title, vehicle_info, status, created_at, updated_at)
-        VALUES (?, ?, ?, 'open', ?, ?)
+        INSERT INTO cases (
+            user_id, title, vehicle_info, status, predicted_result, predicted_confidence, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (user_id, title, vehicle_info, now, now),
+        (
+            user_id,
+            title,
+            vehicle_info,
+            status or "open",
+            predicted_result,
+            predicted_confidence,
+            now,
+            now,
+        ),
     )
     case_id = cur.lastrowid
     conn.commit()
@@ -726,13 +812,91 @@ def list_user_cases(user_id, limit=50):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT id, title, vehicle_info, status, created_at, updated_at
+        SELECT
+            id,
+            title,
+            vehicle_info,
+            status,
+            predicted_result,
+            predicted_confidence,
+            final_result,
+            reviewer_note,
+            reviewed_by,
+            reviewed_at,
+            created_at,
+            updated_at
         FROM cases
         WHERE user_id = ?
         ORDER BY updated_at DESC
         LIMIT ?
         """,
         (user_id, int(limit)),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def list_cases_for_review(limit=100):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            c.id,
+            c.user_id,
+            u.username,
+            c.title,
+            c.vehicle_info,
+            c.status,
+            c.predicted_result,
+            c.predicted_confidence,
+            c.final_result,
+            c.reviewer_note,
+            c.reviewed_by,
+            c.reviewed_at,
+            c.created_at,
+            c.updated_at
+        FROM cases c
+        JOIN users u ON u.id = c.user_id
+        WHERE c.status = 'needs_review'
+        ORDER BY c.updated_at DESC
+        LIMIT ?
+        """,
+        (int(limit),),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def list_recent_reviewed_cases(limit=100):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            c.id,
+            c.user_id,
+            owner.username AS owner_username,
+            c.title,
+            c.status,
+            c.predicted_result,
+            c.predicted_confidence,
+            c.final_result,
+            c.reviewer_note,
+            c.reviewed_by,
+            reviewer.username AS reviewer_username,
+            c.reviewed_at,
+            c.updated_at
+        FROM cases c
+        JOIN users owner ON owner.id = c.user_id
+        LEFT JOIN users reviewer ON reviewer.id = c.reviewed_by
+        WHERE c.status = 'reviewed'
+        ORDER BY c.reviewed_at DESC, c.updated_at DESC
+        LIMIT ?
+        """,
+        (int(limit),),
     )
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
@@ -754,12 +918,52 @@ def add_case_image(case_id, user_id, image_path, note=None):
     conn.close()
 
 
+def delete_case_image(case_id, user_id, image_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT image_path
+        FROM case_images
+        WHERE id = ? AND case_id = ? AND user_id = ?
+        """,
+        (image_id, case_id, user_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    image_path = normalize_image_path(row["image_path"])
+    cur.execute(
+        "DELETE FROM case_images WHERE id = ? AND case_id = ? AND user_id = ?",
+        (image_id, case_id, user_id),
+    )
+    cur.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_str(), case_id))
+    conn.commit()
+    conn.close()
+    return image_path
+
+
 def get_case_detail(case_id, user_id):
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT id, title, vehicle_info, status, created_at, updated_at
+        SELECT
+            id,
+            user_id,
+            title,
+            vehicle_info,
+            status,
+            predicted_result,
+            predicted_confidence,
+            final_result,
+            reviewer_note,
+            reviewed_by,
+            reviewed_at,
+            created_at,
+            updated_at
         FROM cases
         WHERE id = ? AND user_id = ?
         """,
@@ -787,6 +991,61 @@ def get_case_detail(case_id, user_id):
     payload = dict(case_row)
     payload["images"] = images
     return payload
+
+
+def get_case_for_review(case_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            c.id,
+            c.user_id,
+            u.username,
+            c.title,
+            c.vehicle_info,
+            c.status,
+            c.predicted_result,
+            c.predicted_confidence,
+            c.final_result,
+            c.reviewer_note,
+            c.reviewed_by,
+            c.reviewed_at,
+            c.created_at,
+            c.updated_at
+        FROM cases c
+        JOIN users u ON u.id = c.user_id
+        WHERE c.id = ?
+        """,
+        (case_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def review_case(case_id, reviewer_user_id, final_result, reviewer_note=None):
+    now = now_str()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE cases
+        SET
+            status = 'reviewed',
+            final_result = ?,
+            reviewer_note = ?,
+            reviewed_by = ?,
+            reviewed_at = ?,
+            updated_at = ?
+        WHERE id = ? AND status = 'needs_review'
+        """,
+        (final_result, reviewer_note, reviewer_user_id, now, now, case_id),
+    )
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed > 0
 
 
 def create_notification(user_id, title, body):

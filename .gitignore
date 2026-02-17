@@ -11,6 +11,9 @@ env/
 # Local runtime artifacts
 app.db
 *.log
+feedback_images/
+uploads/
+tmp/
 
 # ML model artifacts generated from retrain
 *_retrained_*.h5

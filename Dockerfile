@@ -13,4 +13,4 @@ COPY . .
 EXPOSE 5000
 EXPOSE 8001
 
-CMD ["python", "app.py"]
+CMD ["sh", "-c", "waitress-serve --host=0.0.0.0 --port=${PORT:-5000} app:app"]
