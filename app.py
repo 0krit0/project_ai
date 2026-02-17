@@ -1733,6 +1733,15 @@ def feedback_images(filename):
     return send_from_directory("feedback_images", filename)
 
 
+@app.route("/google69d9d1195c7b2cc1.html")
+def google_site_verification():
+    return (
+        "google-site-verification: google69d9d1195c7b2cc1.html",
+        200,
+        {"Content-Type": "text/plain; charset=utf-8"},
+    )
+
+
 # ================== LOGIN ==================
 @app.route("/login", methods=["GET", "POST"])
 def login():
