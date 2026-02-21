@@ -3,71 +3,71 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>เธซเธเนเธฒเธเธนเนเธ•เธฃเธงเธเธ—เธฒเธ | AutoScope AI</title>
+<title>หน้าผู้ตรวจทาน | AutoScope AI</title>
 <link rel="stylesheet" href="/static/ui.css">
 </head>
 <body>
 <div class="page">
   <aside class="sidebar">
     <div class="brand">AutoScope AI</div>
-    <div class="tagline">เธซเธเนเธฒเธเธนเนเธ•เธฃเธงเธเธ—เธฒเธ</div>
-    <div class="tagline">เธเธนเนเนเธเน: <span class="mono">{{ username }}</span></div>
+    <div class="tagline">หน้าผู้ตรวจทาน</div>
+    <div class="tagline">ผู้ใช้: <span class="mono">{{ username }}</span></div>
     <nav class="nav">
-      <a href="/">เธงเธดเน€เธเธฃเธฒเธฐเธซเน</a>
-      <a href="/cases">เน€เธเธชเธเธฒเธ</a>
-      <a href="/reviewer">เธฃเธตเธงเธดเธงเน€เธเธช</a>
-      <a href="/report/latest">เธฃเธฒเธขเธเธฒเธเธฅเนเธฒเธชเธธเธ”</a>
-      <a href="/history">เธเธฃเธฐเธงเธฑเธ•เธด</a>
-      <a href="/profile">เนเธเธฃเนเธเธฅเน</a>
+      <a href="/">วิเคราะห์</a>
+      <a href="/cases">เคสงาน</a>
+      <a href="/reviewer">รีวิวเคส</a>
+      <a href="/report/latest">รายงานล่าสุด</a>
+      <a href="/history">ประวัติ</a>
+      <a href="/profile">โปรไฟล์</a>
       {% if is_admin %}
-      <a href="/admin">เนเธญเธ”เธกเธดเธ</a>
+      <a href="/admin">แอดมิน</a>
       {% endif %}
-      <a href="/logout">เธญเธญเธเธเธฒเธเธฃเธฐเธเธ</a>
+      <a href="/logout">ออกจากระบบ</a>
     </nav>
   </aside>
 
   <main class="main">
     <header class="header">
-      <h1>เธซเธเนเธฒเธเธนเนเธ•เธฃเธงเธเธ—เธฒเธ</h1>
-      <p>เธเธฑเธ”เธเธฒเธฃเน€เธเธชเธฃเธญเธ•เธฃเธงเธเนเธฅเธฐเธขเธทเธเธขเธฑเธเธเธฅ override เธเธฃเนเธญเธกเธ”เธนเธเธฃเธฐเธงเธฑเธ•เธดเธเธฒเธฃเธฃเธตเธงเธดเธงเธฅเนเธฒเธชเธธเธ”</p>
+      <h1>หน้าผู้ตรวจทาน</h1>
+      <p>จัดการเคสรอตรวจทานและยืนยันผล override พร้อมดูประวัติการรีวิวล่าสุด</p>
     </header>
 
     <section class="card soft">
-      <h3>เน€เธเธชเธฃเธญเธ•เธฃเธงเธเธ—เธฒเธ</h3>
-      <div class="helper">เธเธดเธงเธเธฑเธเธเธธเธเธฑเธ: {{ pending_cases|length }} เน€เธเธช</div>
+      <h3>เคสรอตรวจทาน</h3>
+      <div class="helper">คิวปัจจุบัน: {{ pending_cases|length }} เคส</div>
       {% if pending_cases %}
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>ID</th>
-              <th>เน€เธเนเธฒเธเธญเธเน€เธเธช</th>
-              <th>เธซเธฑเธงเธเนเธญ</th>
-              <th>เธเธฅเน€เธ”เธดเธก</th>
-              <th>เธเธงเธฒเธกเธกเธฑเนเธเนเธ</th>
-              <th>เธญเธฑเธเน€เธ”เธ•เธฅเนเธฒเธชเธธเธ”</th>
-              <th>เธขเธทเธเธขเธฑเธเธเธฅ</th>
+              <th>เจ้าของเคส</th>
+              <th>หัวข้อ</th>
+              <th>ผลเดิม</th>
+              <th>ความมั่นใจ</th>
+              <th>อัปเดตล่าสุด</th>
+              <th>ยืนยันผล</th>
             </tr>
           </thead>
           <tbody>
             {% for c in pending_cases %}
             <tr>
               <td data-label="ID">#{{ c.id|case_code }}</td>
-              <td data-label="เน€เธเนเธฒเธเธญเธเน€เธเธช">{{ c.username }}</td>
-              <td data-label="เธซเธฑเธงเธเนเธญ">{{ c.title }}</td>
-              <td data-label="เธเธฅเน€เธ”เธดเธก">{{ c.predicted_result or "-" }}</td>
-              <td data-label="เธเธงเธฒเธกเธกเธฑเนเธเนเธ">{{ c.predicted_confidence if c.predicted_confidence is not none else "-" }}</td>
-              <td data-label="เธญเธฑเธเน€เธ”เธ•เธฅเนเธฒเธชเธธเธ”">{{ c.updated_at }}</td>
-              <td data-label="เธขเธทเธเธขเธฑเธเธเธฅ">
+              <td data-label="เจ้าของเคส">{{ c.username }}</td>
+              <td data-label="หัวข้อ">{{ c.title }}</td>
+              <td data-label="ผลเดิม">{{ c.predicted_result or "-" }}</td>
+              <td data-label="ความมั่นใจ">{{ c.predicted_confidence if c.predicted_confidence is not none else "-" }}</td>
+              <td data-label="อัปเดตล่าสุด">{{ c.updated_at }}</td>
+              <td data-label="ยืนยันผล">
                 <form class="review-form" data-case-id="{{ c.id }}">
                   <select name="final_result" required>
-                    <option value="">เน€เธฅเธทเธญเธเธเธฅเธขเธทเธเธขเธฑเธ</option>
+                    <option value="">เลือกผลยืนยัน</option>
                     <option value="low">low</option>
                     <option value="medium">medium</option>
                     <option value="high">high</option>
                   </select>
-                  <input name="reviewer_note" type="text" placeholder="เธซเธกเธฒเธขเน€เธซเธ•เธธ reviewer (เนเธกเนเธเธฑเธเธเธฑเธ)">
-                  <button class="btn warm" type="submit">เธขเธทเธเธขเธฑเธ</button>
+                  <input name="reviewer_note" type="text" placeholder="หมายเหตุ reviewer (ไม่บังคับ)">
+                  <button class="btn warm" type="submit">ยืนยัน</button>
                 </form>
               </td>
             </tr>
@@ -76,54 +76,54 @@
         </table>
       </div>
       {% else %}
-      <div class="notice empty">เนเธกเนเธกเธตเน€เธเธชเธฃเธญเธ•เธฃเธงเธ</div>
+      <div class="notice empty">ไม่มีเคสรอตรวจ</div>
       {% endif %}
       <p id="reviewMsg" class="helper"></p>
     </section>
 
     <section class="card">
-      <h3>เธฃเธตเธงเธดเธงเธฅเนเธฒเธชเธธเธ”</h3>
+      <h3>รีวิวล่าสุด</h3>
       {% if reviewed_cases %}
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>ID</th>
-              <th>เน€เธเนเธฒเธเธญเธเน€เธเธช</th>
-              <th>เธเธนเนเธฃเธตเธงเธดเธง</th>
-              <th>เธเธฅเน€เธ”เธดเธก</th>
-              <th>เธเธฅเธขเธทเธเธขเธฑเธ</th>
-              <th>เน€เธงเธฅเธฒเธฃเธตเธงเธดเธง</th>
+              <th>เจ้าของเคส</th>
+              <th>ผู้รีวิว</th>
+              <th>ผลเดิม</th>
+              <th>ผลยืนยัน</th>
+              <th>เวลารีวิว</th>
             </tr>
           </thead>
           <tbody>
             {% for c in reviewed_cases[:40] %}
             <tr>
               <td data-label="ID">#{{ c.id|case_code }}</td>
-              <td data-label="เน€เธเนเธฒเธเธญเธเน€เธเธช">{{ c.owner_username }}</td>
-              <td data-label="เธเธนเนเธฃเธตเธงเธดเธง">{{ c.reviewer_username or "-" }}</td>
-              <td data-label="เธเธฅเน€เธ”เธดเธก">{{ c.predicted_result or "-" }}</td>
-              <td data-label="เธเธฅเธขเธทเธเธขเธฑเธ">{{ c.final_result or "-" }}</td>
-              <td data-label="เน€เธงเธฅเธฒเธฃเธตเธงเธดเธง">{{ c.reviewed_at or c.updated_at }}</td>
+              <td data-label="เจ้าของเคส">{{ c.owner_username }}</td>
+              <td data-label="ผู้รีวิว">{{ c.reviewer_username or "-" }}</td>
+              <td data-label="ผลเดิม">{{ c.predicted_result or "-" }}</td>
+              <td data-label="ผลยืนยัน">{{ c.final_result or "-" }}</td>
+              <td data-label="เวลารีวิว">{{ c.reviewed_at or c.updated_at }}</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
       {% else %}
-      <div class="notice empty">เธขเธฑเธเนเธกเนเธกเธตเธเธฃเธฐเธงเธฑเธ•เธดเธเธฒเธฃเธฃเธตเธงเธดเธง</div>
+      <div class="notice empty">ยังไม่มีประวัติการรีวิว</div>
       {% endif %}
     </section>
 
     <section class="card">
-      <h3>Audit เธฅเนเธฒเธชเธธเธ” (Case Review)</h3>
+      <h3>Audit ล่าสุด (Case Review)</h3>
       {% if audit_rows %}
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>เน€เธงเธฅเธฒ</th>
-              <th>เธเธนเนเนเธเน</th>
+              <th>เวลา</th>
+              <th>ผู้ใช้</th>
               <th>Action</th>
               <th>Target</th>
             </tr>
@@ -131,8 +131,8 @@
           <tbody>
             {% for a in audit_rows %}
             <tr>
-              <td data-label="เน€เธงเธฅเธฒ">{{ a.created_at }}</td>
-              <td data-label="เธเธนเนเนเธเน">{{ a.username or "-" }}</td>
+              <td data-label="เวลา">{{ a.created_at }}</td>
+              <td data-label="ผู้ใช้">{{ a.username or "-" }}</td>
               <td data-label="Action">{{ a.action }}</td>
               <td data-label="Target">{{ a.target or "-" }}</td>
             </tr>
@@ -141,7 +141,7 @@
         </table>
       </div>
       {% else %}
-      <div class="notice empty">เธขเธฑเธเนเธกเนเธกเธต audit เธเธฒเธฃเธฃเธตเธงเธดเธง</div>
+      <div class="notice empty">ยังไม่มี audit การรีวิว</div>
       {% endif %}
     </section>
   </main>
@@ -158,10 +158,10 @@
       const res = await fetch('/api/cases/' + caseId + '/review', { method: 'POST', body: fd });
       const data = await res.json();
       if (data.ok) {
-        if (reviewMsg) reviewMsg.textContent = 'เธเธฑเธเธ—เธถเธเธเธฅเธฃเธตเธงเธดเธงเน€เธเธช #' + caseId + ' เนเธฅเนเธง';
+        if (reviewMsg) reviewMsg.textContent = 'บันทึกผลรีวิวเคส #' + caseId + ' แล้ว';
         setTimeout(function () { location.reload(); }, 700);
       } else {
-        if (reviewMsg) reviewMsg.textContent = 'เธฃเธตเธงเธดเธงเนเธกเนเธชเธณเน€เธฃเนเธ: ' + (data.error || 'unknown');
+        if (reviewMsg) reviewMsg.textContent = 'รีวิวไม่สำเร็จ: ' + (data.error || 'unknown');
       }
     });
   });
@@ -169,4 +169,3 @@
 </script>
 </body>
 </html>
-
