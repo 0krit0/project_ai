@@ -5,7 +5,7 @@ services:
     plan: starter
     autoDeploy: true
     buildCommand: pip install -r requirements.txt
-    startCommand: waitress-serve --host=0.0.0.0 --port=$PORT app:app
+    startCommand: python serve.py
     healthCheckPath: /healthz
     envVars:
       - key: PYTHON_VERSION
