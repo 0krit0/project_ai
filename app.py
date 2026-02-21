@@ -133,7 +133,7 @@ NON_CAR_MODEL_PATH = os.getenv("NON_CAR_MODEL_PATH", "car_noncar_model.h5")
 NON_CAR_MODEL_MIN_CAR_PROB = float(os.getenv("NON_CAR_MODEL_MIN_CAR_PROB", "0.6"))
 NON_CAR_MODEL_CAR_INDEX = env_int("NON_CAR_MODEL_CAR_INDEX", 1)
 NON_CAR_HARD_BLOCK_MAX_CAR_PROB = float(os.getenv("NON_CAR_HARD_BLOCK_MAX_CAR_PROB", "0.2"))
-NON_CAR_RULE_BLOCK_MIN_RISK = env_int("NON_CAR_RULE_BLOCK_MIN_RISK", 5)
+NON_CAR_RULE_BLOCK_MIN_RISK = env_int("NON_CAR_RULE_BLOCK_MIN_RISK", 3)
 REVIEWER_USERNAMES = {
     name.strip().lower()
     for name in os.getenv("REVIEWER_USERNAMES", "reviewer").split(",")
@@ -1046,14 +1046,9 @@ def run_analysis_pipeline(user, part, file_storage, extra_files=None, summary_to
                     representative_domain_gate = domain_gate
         if domain_gate.get("mode") == "model" and not domain_gate.get("is_car"):
             car_prob = float(domain_gate.get("car_probability") or 0.0)
-            if car_prob <= NON_CAR_HARD_BLOCK_MAX_CAR_PROB:
-                return (
-                    None,
-                    f"ภาพที่ {i}: ระบบตรวจพบว่าอาจไม่ใช่ภาพรถ กรุณาอัปโหลดภาพรถที่เห็นชิ้นส่วนชัดเจน",
-                )
-            domain_suspicious = True
-            domain_suspicion_notes.append(
-                f"ภาพที่ {i} อาจไม่เห็นชิ้นส่วนรถชัด (car probability {car_prob * 100:.1f}%) ระบบจะส่งให้คนช่วยรีวิว"
+            return (
+                None,
+                f"ภาพที่ {i}: ไม่ใช่รูปรถ (car probability {car_prob * 100:.1f}%) กรุณาอัปโหลดรูปรถที่เห็นชิ้นส่วนชัดเจน",
             )
 
         tta_scores = []
@@ -1140,7 +1135,7 @@ def run_analysis_pipeline(user, part, file_storage, extra_files=None, summary_to
     if should_block_by_rules:
         return (
             None,
-            "ไม่สามารถยืนยันว่าเป็นภาพความเสียหายของรถได้ กรุณาอัปโหลดภาพรถที่เห็นชิ้นส่วนชัดเจน",
+            "ไม่สามารถยืนยันว่าเป็นรูปรถได้ กรุณาอัปโหลดรูปรถที่เห็นชิ้นส่วนชัดเจน",
         )
     if NON_CAR_GUARD_ENABLED and not should_block_by_rules and rule_risk >= 3:
         domain_suspicious = True
