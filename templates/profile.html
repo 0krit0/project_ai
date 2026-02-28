@@ -63,81 +63,12 @@
           อายุ: <span class="mono">{{ profile_data.age or '-' }}</span> |
           เพศ: <span class="mono">{{ profile_data.gender or '-' }}</span>
         </p>
-        <p class="helper">
-          สถานะอีเมล:
-          {% if profile_data.email_verified %}
-          <b style="color:#1f8f4f">ยืนยันแล้ว</b>
-          {% else %}
-          <b style="color:#b45309">ยังไม่ยืนยัน</b>
-          {% endif %}
-          |
-          ส่งเมลล่าสุด:
-          <span class="mono">{{ (last_email_log.created_at if last_email_log else '-') }}</span>
-        </p>
         <p class="helper">สถิตินี้ช่วยดูพฤติกรรมการใช้งานและความสม่ำเสมอของข้อมูลภาพที่อัปโหลด</p>
       </div>
       <div class="profile-actions">
         <a class="btn primary" href="/export_csv">ดาวน์โหลดประวัติเป็น CSV</a>
         <a class="btn ghost" href="/history">ดูประวัติทั้งหมด</a>
       </div>
-    </section>
-
-    <section class="card">
-      <h3>ยืนยันอีเมล</h3>
-      {% if profile_data.email_verified %}
-      <div class="notice ok">อีเมลของคุณยืนยันแล้ว</div>
-      {% else %}
-      <p class="helper">กรุณาตรวจสอบอีเมลของคุณและกรอกรหัส 6 หลักที่ได้รับ เพื่อยืนยันบัญชีให้สมบูรณ์</p>
-      <form method="post" action="/profile/email-verify/send">
-        <div class="inline-actions">
-          <button class="btn warm" type="submit">ส่งรหัสยืนยันเข้าอีเมล</button>
-        </div>
-      </form>
-      <form method="post" action="/profile/email-verify/confirm" style="margin-top:10px">
-        <label for="verify_code">กรอกรหัสยืนยัน 6 หลัก</label>
-        <input id="verify_code" type="text" name="verify_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required>
-        <div class="inline-actions" style="margin-top:8px">
-          <button class="btn primary" type="submit">ยืนยันอีเมล</button>
-        </div>
-      </form>
-      {% endif %}
-    </section>
-
-    <section class="card">
-      <h3>ส่งข้อมูลเข้าอีเมล</h3>
-      <form method="post" action="/profile/email-summary">
-        <div class="result-grid">
-          <div>
-            <label for="summary_scope">รูปแบบข้อมูล</label>
-            <select id="summary_scope" name="summary_scope" required>
-              <option value="latest" {% if email_form.scope == "latest" %}selected{% endif %}>สรุปล่าสุด (ธรรมดา)</option>
-              <option value="case" {% if email_form.scope == "case" %}selected{% endif %}>สรุปตามเคส</option>
-            </select>
-          </div>
-          <div>
-            <label for="summary_tone">โหมดสรุป</label>
-            <select id="summary_tone" name="summary_tone" required>
-              <option value="customer" {% if email_form.tone == "customer" %}selected{% endif %}>แบบทั่วไป</option>
-              <option value="technical" {% if email_form.tone == "technical" %}selected{% endif %}>แบบช่าง</option>
-              <option value="insurance" {% if email_form.tone == "insurance" %}selected{% endif %}>แบบประกัน</option>
-            </select>
-          </div>
-        </div>
-        <div id="casePickerWrap">
-          <label for="case_id">เลือกเคส (ใช้เมื่อเลือกสรุปตามเคส)</label>
-          <select id="case_id" name="case_id">
-            <option value="">-- เลือกเคส --</option>
-            {% for c in user_cases %}
-            <option value="{{ c.id }}" {% if (email_form.case_id|string) == (c.id|string) %}selected{% endif %}>
-              #{{ c.id|case_code }} | {{ c.title }} | {{ c.status }}
-            </option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="inline-actions" style="margin-top:10px">
-          <button class="btn ghost" type="submit">ส่งเข้าอีเมลตามโหมดที่เลือก</button>
-        </div>
-      </form>
     </section>
 
     <section class="card">
@@ -163,38 +94,6 @@
           <button class="btn primary" type="submit">บันทึกข้อมูล</button>
         </div>
       </form>
-    </section>
-
-    <section class="card" id="emailLogSection">
-      <h3>ประวัติการส่งอีเมลล่าสุด</h3>
-      {% if email_logs %}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>เวลา</th>
-              <th>ถึง</th>
-              <th>หัวข้อ</th>
-              <th>สถานะ</th>
-              <th>หมายเหตุ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for log in email_logs %}
-            <tr>
-              <td data-label="เวลา">{{ log.created_at }}</td>
-              <td data-label="ถึง">{{ log.to_email }}</td>
-              <td data-label="หัวข้อ">{{ log.subject }}</td>
-              <td data-label="สถานะ">{{ log.status }}</td>
-              <td data-label="หมายเหตุ">{{ log.error_text or '-' }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      <div class="notice empty">ยังไม่มีประวัติการส่งอีเมล</div>
-      {% endif %}
     </section>
 
     <section class="card">
@@ -270,17 +169,6 @@
 </div>
 <script>
 (function () {
-  const scopeSelect = document.getElementById('summary_scope');
-  const caseWrap = document.getElementById('casePickerWrap');
-  if (scopeSelect && caseWrap) {
-    const syncCaseWrap = function () {
-      const isCase = scopeSelect.value === 'case';
-      caseWrap.style.display = isCase ? '' : 'none';
-    };
-    syncCaseWrap();
-    scopeSelect.addEventListener('change', syncCaseWrap);
-  }
-
   const avatarInput = document.getElementById('avatar');
   const avatarPreview = document.getElementById('profileAvatarPreview');
   if (avatarInput && avatarPreview) {

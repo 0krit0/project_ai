@@ -44,21 +44,6 @@
     {% endif %}
 
     <section class="card soft">
-      <h3>ส่งสรุปเคสเข้าอีเมล</h3>
-      <form method="post" action="/cases/{{ case_data.id }}/email-summary">
-        <label for="case_summary_tone">โหมดสรุป</label>
-        <select id="case_summary_tone" name="summary_tone" required>
-          <option value="customer">แบบทั่วไป</option>
-          <option value="technical">แบบช่าง</option>
-          <option value="insurance">แบบประกัน</option>
-        </select>
-        <div class="inline-actions" style="margin-top:10px">
-          <button class="btn warm" type="submit">ส่งสรุปเคสนี้เข้าอีเมล</button>
-        </div>
-      </form>
-    </section>
-
-    <section class="card soft">
       <h3>แนบรูปเพิ่ม</h3>
       <form id="addImageForm">
         <label for="add_files">รูปภาพ</label>

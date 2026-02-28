@@ -77,10 +77,6 @@
         <button class="btn primary" type="button" onclick="window.print()">พิมพ์/บันทึก PDF</button>
         <a class="btn ghost" id="pdfToneLink" href="/report/latest.pdf?summary_tone={{ summary_tone or 'customer' }}">ดาวน์โหลด PDF (Server)</a>
         <a class="btn ghost" id="csvToneLink" href="/export_csv?summary_tone={{ summary_tone or 'customer' }}">ส่งออก CSV (โหมดนี้)</a>
-        <form method="post" action="/report/latest/email">
-          <input type="hidden" name="summary_tone" id="emailSummaryToneInput" value="{{ summary_tone or 'customer' }}">
-          <button class="btn warm" type="submit">ส่งรายงานนี้เข้าอีเมล</button>
-        </form>
       </div>
     </section>
   </main>
@@ -92,14 +88,12 @@
   const applyBtn = document.getElementById('applyToneBtn');
   const pdfLink = document.getElementById('pdfToneLink');
   const csvLink = document.getElementById('csvToneLink');
-  const emailToneInput = document.getElementById('emailSummaryToneInput');
   if (!toneSelect) return;
 
   function refreshLinks() {
     const tone = toneSelect.value || 'customer';
     if (pdfLink) pdfLink.href = '/report/latest.pdf?summary_tone=' + encodeURIComponent(tone);
     if (csvLink) csvLink.href = '/export_csv?summary_tone=' + encodeURIComponent(tone);
-    if (emailToneInput) emailToneInput.value = tone;
   }
 
   refreshLinks();

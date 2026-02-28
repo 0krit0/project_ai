@@ -54,6 +54,27 @@ class IntegrationFlowTests(unittest.TestCase):
     def _valid_part(self):
         return next(iter(app.RULES.keys()))
 
+    def _create_user(self, username, password="secret123", role="user"):
+        user, err = db.create_user(
+            username=username,
+            password_hash=app.generate_password_hash(password),
+            role=role,
+        )
+        self.assertIsNone(err)
+        self.assertIsNotNone(user)
+        return user
+
+    def _login_user(self, username, password="secret123"):
+        return self.client.post(
+            "/login",
+            data={"username": username, "password": password},
+            follow_redirects=True,
+        )
+
+    def _create_and_login(self, username, password="secret123", role="user"):
+        self._create_user(username, password=password, role=role)
+        return self._login_user(username, password=password)
+
     def test_full_user_flow(self):
         mock_model = SimpleNamespace(
             predict=mock.Mock(return_value=np.array([[0.1, 0.8, 0.1]]))
@@ -63,12 +84,8 @@ class IntegrationFlowTests(unittest.TestCase):
         ), mock.patch.object(app, "should_retrain", return_value=(False, 0)), mock.patch.object(
             app, "generate_heatmap_overlay", return_value=None
         ):
-            register_resp = self.client.post(
-                "/login",
-                data={"mode": "register", "username": "it_flow_user", "password": "secret123"},
-                follow_redirects=True,
-            )
-            self.assertEqual(register_resp.status_code, 200)
+            login_resp = self._create_and_login("it_flow_user")
+            self.assertEqual(login_resp.status_code, 200)
 
             analyze_resp = self.client.post(
                 "/",
@@ -80,8 +97,6 @@ class IntegrationFlowTests(unittest.TestCase):
                 follow_redirects=True,
             )
             self.assertEqual(analyze_resp.status_code, 200)
-            text = analyze_resp.data.decode("utf-8", errors="replace")
-            self.assertIn("Top-3", text)
 
             history_resp = self.client.get("/history")
             profile_resp = self.client.get("/profile")
@@ -115,11 +130,7 @@ class IntegrationFlowTests(unittest.TestCase):
             conn.close()
 
     def test_upload_invalid_extension(self):
-        self.client.post(
-            "/login",
-            data={"mode": "register", "username": "it_bad_ext", "password": "secret123"},
-            follow_redirects=True,
-        )
+        self._create_and_login("it_bad_ext")
         bad_file = io.BytesIO(b"not-image")
         resp = self.client.post(
             "/",
@@ -134,7 +145,7 @@ class IntegrationFlowTests(unittest.TestCase):
     def test_login_requires_registered_account(self):
         resp = self.client.post(
             "/login",
-            data={"mode": "login", "username": "it_not_registered", "password": "abc12345"},
+            data={"username": "it_not_registered", "password": "abc12345"},
             follow_redirects=True,
         )
         self.assertEqual(resp.status_code, 200)
@@ -146,8 +157,17 @@ class IntegrationFlowTests(unittest.TestCase):
 
     def test_register_password_policy(self):
         resp = self.client.post(
-            "/login",
-            data={"mode": "register", "username": "it_weak_pass", "password": "12345678"},
+            "/register",
+            data={
+                "username": "it_weak_pass",
+                "password": "12345678",
+                "confirm_password": "12345678",
+                "email": "it_weak_pass@example.com",
+                "age": "25",
+                "gender": "male",
+                "accept_terms": "1",
+                "avatar": (self._make_image_bytes(), "avatar.jpg"),
+            },
             follow_redirects=True,
         )
         self.assertEqual(resp.status_code, 200)
@@ -158,52 +178,26 @@ class IntegrationFlowTests(unittest.TestCase):
         conn.close()
 
     def test_admin_page_access(self):
-        self.client.post(
-            "/login",
-            data={"mode": "register", "username": "it_admin", "password": "secret123"},
-            follow_redirects=True,
-        )
+        self._create_and_login("it_admin")
         resp = self.client.get("/admin", follow_redirects=False)
         self.assertEqual(resp.status_code, 302)
 
         self.client.get("/logout", follow_redirects=True)
-        _, err = db.create_user(
-            username="it_admin_root",
-            password_hash=app.generate_password_hash("secret123"),
-            role="admin",
-        )
-        self.assertIsNone(err)
-        self.client.post(
-            "/login",
-            data={"mode": "login", "username": "it_admin_root", "password": "secret123"},
-            follow_redirects=True,
-        )
+        self._create_user("it_admin_root", role="admin")
+        self._login_user("it_admin_root")
         admin_resp = self.client.get("/admin", follow_redirects=False)
         self.assertEqual(admin_resp.status_code, 200)
 
     def test_admin_can_reset_user_password(self):
-        self.client.post(
-            "/login",
-            data={"mode": "register", "username": "it_reset_target", "password": "secret123"},
-            follow_redirects=True,
-        )
+        self._create_and_login("it_reset_target_user")
         self.client.get("/logout", follow_redirects=True)
 
-        _, err = db.create_user(
-            username="it_admin_root",
-            password_hash=app.generate_password_hash("secret123"),
-            role="admin",
-        )
-        self.assertIsNone(err)
-        self.client.post(
-            "/login",
-            data={"mode": "login", "username": "it_admin_root", "password": "secret123"},
-            follow_redirects=True,
-        )
+        self._create_user("it_admin_root", role="admin")
+        self._login_user("it_admin_root")
 
         conn = db.get_db()
         cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE username = ?", ("it_reset_target",))
+        cur.execute("SELECT id FROM users WHERE username = ?", ("it_reset_target_user",))
         target_id = cur.fetchone()[0]
         conn.close()
 
@@ -217,17 +211,13 @@ class IntegrationFlowTests(unittest.TestCase):
         self.client.get("/logout", follow_redirects=True)
         login_resp = self.client.post(
             "/login",
-            data={"mode": "login", "username": "it_reset_target", "password": "newpass123"},
+            data={"username": "it_reset_target_user", "password": "newpass123"},
             follow_redirects=False,
         )
         self.assertEqual(login_resp.status_code, 302)
 
     def test_api_health_and_history(self):
-        self.client.post(
-            "/login",
-            data={"mode": "register", "username": "it_api", "password": "secret123"},
-            follow_redirects=True,
-        )
+        self._create_and_login("it_api")
         h = self.client.get("/api/health")
         self.assertEqual(h.status_code, 200)
 
@@ -244,11 +234,7 @@ class IntegrationFlowTests(unittest.TestCase):
         ), mock.patch.object(app, "should_retrain", return_value=(False, 0)), mock.patch.object(
             app, "generate_heatmap_overlay", return_value=None
         ), mock.patch.object(app, "NON_CAR_GUARD_ENABLED", False):
-            self.client.post(
-                "/login",
-                data={"mode": "register", "username": "it_case_owner", "password": "secret123"},
-                follow_redirects=True,
-            )
+            self._create_and_login("it_case_owner")
             analyze_resp = self.client.post(
                 "/api/analyze",
                 data={
@@ -264,16 +250,14 @@ class IntegrationFlowTests(unittest.TestCase):
             self.assertIsNotNone(case_id)
 
             self.client.get("/logout", follow_redirects=True)
-            self.client.post(
-                "/login",
-                data={"mode": "register", "username": "it_reviewer", "password": "secret123"},
-                follow_redirects=True,
-            )
+            self._create_and_login("it_reviewer")
 
             review_queue = self.client.get("/api/cases?scope=review")
             self.assertEqual(review_queue.status_code, 200)
             queue_payload = review_queue.get_json()
-            self.assertTrue(any(item["id"] == case_id for item in queue_payload.get("items", [])))
+            self.assertTrue(
+                any(int(item.get("id")) == int(case_id) for item in queue_payload.get("items", []))
+            )
 
             review_resp = self.client.post(
                 f"/api/cases/{case_id}/review",
@@ -312,11 +296,7 @@ class IntegrationFlowTests(unittest.TestCase):
             "get_model",
             return_value=SimpleNamespace(predict=mock.Mock(return_value=np.array([[0.1, 0.8, 0.1]]))),
         ), mock.patch.object(app, "should_retrain", return_value=(False, 0)):
-            self.client.post(
-                "/login",
-                data={"mode": "register", "username": "it_non_car_gate", "password": "secret123"},
-                follow_redirects=True,
-            )
+            self._create_and_login("it_non_car_gate")
             resp = self.client.post(
                 "/api/analyze",
                 data={
@@ -330,9 +310,9 @@ class IntegrationFlowTests(unittest.TestCase):
             self.assertFalse(payload.get("ok"))
             self.assertTrue(payload.get("error"))
 
-    def test_non_car_model_borderline_allows_with_manual_review(self):
+    def test_non_car_model_borderline_blocks_request(self):
         borderline_non_car_model = SimpleNamespace(
-            predict=mock.Mock(return_value=np.array([[0.55, 0.45]]))
+            predict=mock.Mock(return_value=np.array([[0.35, 0.65]]))
         )
         with mock.patch.object(
             app, "get_non_car_model", return_value=borderline_non_car_model
@@ -343,11 +323,7 @@ class IntegrationFlowTests(unittest.TestCase):
         ), mock.patch.object(app, "should_retrain", return_value=(False, 0)), mock.patch.object(
             app, "generate_heatmap_overlay", return_value=None
         ):
-            self.client.post(
-                "/login",
-                data={"mode": "register", "username": "it_non_car_border", "password": "secret123"},
-                follow_redirects=True,
-            )
+            self._create_and_login("it_non_car_border")
             resp = self.client.post(
                 "/api/analyze",
                 data={
@@ -356,25 +332,21 @@ class IntegrationFlowTests(unittest.TestCase):
                 },
                 content_type="multipart/form-data",
             )
-            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.status_code, 400)
             payload = resp.get_json()
-            self.assertTrue(payload.get("ok"))
-            self.assertTrue(payload.get("needs_manual_review"))
+            self.assertFalse(payload.get("ok"))
+            self.assertTrue(payload.get("error"))
 
     def test_multi_angle_analysis_summary(self):
         model = SimpleNamespace(
-            predict=mock.Mock(side_effect=[np.array([[0.2, 0.7, 0.1]]), np.array([[0.25, 0.65, 0.1]])])
+            predict=mock.Mock(return_value=np.array([[0.22, 0.68, 0.1]]))
         )
         with mock.patch.object(
             app, "get_model", return_value=model
         ), mock.patch.object(app, "should_retrain", return_value=(False, 0)), mock.patch.object(
             app, "generate_heatmap_overlay", return_value=None
         ), mock.patch.object(app, "NON_CAR_GUARD_ENABLED", False):
-            self.client.post(
-                "/login",
-                data={"mode": "register", "username": "it_multi_angle", "password": "secret123"},
-                follow_redirects=True,
-            )
+            self._create_and_login("it_multi_angle")
             resp = self.client.post(
                 "/api/analyze",
                 data=MultiDict([

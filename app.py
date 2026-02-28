@@ -130,7 +130,7 @@ NON_CAR_MIN_SCORE_GAP = float(os.getenv("NON_CAR_MIN_SCORE_GAP", "18"))
 NON_CAR_MAX_ENTROPY = float(os.getenv("NON_CAR_MAX_ENTROPY", "0.85"))
 NON_CAR_MODEL_ENABLED = os.getenv("NON_CAR_MODEL_ENABLED", "true").lower() == "true"
 NON_CAR_MODEL_PATH = os.getenv("NON_CAR_MODEL_PATH", "car_noncar_model.h5")
-NON_CAR_MODEL_MIN_CAR_PROB = float(os.getenv("NON_CAR_MODEL_MIN_CAR_PROB", "0.6"))
+NON_CAR_MODEL_MIN_CAR_PROB = float(os.getenv("NON_CAR_MODEL_MIN_CAR_PROB", "0.75"))
 NON_CAR_MODEL_CAR_INDEX = env_int("NON_CAR_MODEL_CAR_INDEX", 1)
 NON_CAR_HARD_BLOCK_MAX_CAR_PROB = float(os.getenv("NON_CAR_HARD_BLOCK_MAX_CAR_PROB", "0.2"))
 NON_CAR_RULE_BLOCK_MIN_RISK = env_int("NON_CAR_RULE_BLOCK_MIN_RISK", 3)
@@ -1127,17 +1127,13 @@ def run_analysis_pipeline(user, part, file_storage, extra_files=None, summary_to
     if tta_dispersion > MANUAL_REVIEW_MAX_TTA_DISPERSION:
         rule_risk += 1
 
-    should_block_by_rules = (
-        NON_CAR_GUARD_ENABLED
-        and domain_gate.get("mode") != "model"
-        and rule_risk >= NON_CAR_RULE_BLOCK_MIN_RISK
-    )
+    should_block_by_rules = NON_CAR_GUARD_ENABLED and rule_risk >= NON_CAR_RULE_BLOCK_MIN_RISK
     if should_block_by_rules:
         return (
             None,
             "ไม่สามารถยืนยันว่าเป็นรูปรถได้ กรุณาอัปโหลดรูปรถที่เห็นชิ้นส่วนชัดเจน",
         )
-    if NON_CAR_GUARD_ENABLED and not should_block_by_rules and rule_risk >= 3:
+    if NON_CAR_GUARD_ENABLED and not should_block_by_rules and rule_risk >= 2:
         domain_suspicious = True
         if "ภาพกำกวมอาจทำให้ผลคลาดเคลื่อน ระบบจะส่งรีวิวเพิ่ม" not in quality_notes:
             quality_notes.append("ภาพกำกวมอาจทำให้ผลคลาดเคลื่อน ระบบจะส่งรีวิวเพิ่ม")
@@ -1578,31 +1574,11 @@ def parse_age(value):
 
 
 def smtp_ready():
-    return bool(SMTP_HOST and SMTP_FROM)
+    return False
 
 
 def send_email_message(to_email, subject, body_text):
-    if not smtp_ready():
-        raise RuntimeError("SMTP ยังไม่ถูกตั้งค่า")
-
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = SMTP_FROM
-    msg["To"] = (to_email or "").strip()
-    msg.set_content(body_text)
-
-    if SMTP_USE_TLS:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
-            server.starttls()
-            if SMTP_USERNAME:
-                server.login(SMTP_USERNAME, SMTP_PASSWORD)
-            server.send_message(msg)
-        return
-
-    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=20) as server:
-        if SMTP_USERNAME:
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
-        server.send_message(msg)
+    raise RuntimeError("ระบบปิดการส่งอีเมลแล้ว")
 
 
 def hash_token(raw_token):
@@ -1902,36 +1878,6 @@ def register():
                     details={"username": username, "email": email_norm, "age": age, "gender": gender},
                 )
                 app.logger.info("register user=%s role=%s", username, role)
-                if email_norm and smtp_ready():
-                    try:
-                        subject = "สมัครสมาชิก AutoScope AI สำเร็จ"
-                        send_email_message(
-                            email_norm,
-                            subject,
-                            (
-                                f"สวัสดี {username}\n\n"
-                                "บัญชีของคุณถูกสร้างเรียบร้อยแล้วในระบบ AutoScope AI\n"
-                                "คุณสามารถเข้าสู่ระบบและใช้งานการวิเคราะห์ได้ทันที\n\n"
-                                "ขอบคุณที่ใช้งานระบบ"
-                            ),
-                        )
-                        add_email_log(
-                            user["id"],
-                            email_norm,
-                            subject,
-                            "sent",
-                            meta={"event": "register_welcome"},
-                        )
-                    except Exception as err_send:
-                        app.logger.warning("register email send failed user=%s err=%s", username, err_send)
-                        add_email_log(
-                            user["id"],
-                            email_norm,
-                            subject,
-                            "failed",
-                            error_text=str(err_send),
-                            meta={"event": "register_welcome"},
-                        )
                 session.clear()
                 return redirect("/login?notice=registered")
 
@@ -1968,45 +1914,9 @@ def api_register_check():
 
 @app.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
-    warning = None
+    warning = "ระบบปิดฟังก์ชันส่งอีเมลรีเซ็ตรหัสผ่านแล้ว"
     success = None
     email_value = ""
-    if request.method == "POST":
-        email_value = (request.form.get("email") or "").strip()
-        email_norm, email_error = validate_email(email_value)
-        if email_error:
-            warning = email_error
-        elif not smtp_ready():
-            warning = "ระบบยังไม่ตั้งค่า SMTP สำหรับส่งอีเมลรีเซ็ตรหัสผ่าน"
-        else:
-            user_row = get_user_by_email(email_norm)
-            success = "ถ้าอีเมลนี้อยู่ในระบบ เราได้ส่งลิงก์รีเซ็ตรหัสผ่านให้แล้ว"
-            if user_row and user_row.get("is_active"):
-                raw_token = secrets.token_urlsafe(32)
-                token_hash = hash_token(raw_token)
-                expires_at = (datetime.now() + timedelta(minutes=PASSWORD_RESET_TOKEN_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
-                create_password_reset_token(user_row["id"], token_hash, expires_at)
-                reset_link = make_reset_link(raw_token)
-                subject = "รีเซ็ตรหัสผ่าน AutoScope AI"
-                body = (
-                    f"สวัสดี {user_row['name']}\n\n"
-                    f"คุณได้ขอรีเซ็ตรหัสผ่าน กรุณากดลิงก์นี้ภายใน {PASSWORD_RESET_TOKEN_MINUTES} นาที:\n"
-                    f"{reset_link}\n\n"
-                    "หากคุณไม่ได้เป็นผู้ขอ สามารถละเว้นอีเมลฉบับนี้ได้"
-                )
-                try:
-                    send_email_message(email_norm, subject, body)
-                    add_email_log(user_row["id"], email_norm, subject, "sent", meta={"event": "forgot_password"})
-                except Exception as err:
-                    app.logger.warning("forgot password email send failed email=%s err=%s", email_norm, err)
-                    add_email_log(
-                        user_row["id"],
-                        email_norm,
-                        subject,
-                        "failed",
-                        error_text=str(err),
-                        meta={"event": "forgot_password"},
-                    )
     return render_template("forgot_password.html", warning=warning, success=success, email_value=email_value)
 
 
@@ -2418,22 +2328,12 @@ def render_profile_page(
     avatar_warning=None,
     email_warning=None,
     email_success=None,
-    email_form=None,
 ):
     total, last_time = get_profile_summary(user["id"])
     insights = get_profile_insights(user["id"])
     recent = get_user_history(user["id"], limit=5)
     cases = list_user_cases(user["id"], limit=50)
     profile_data = get_user_profile(user["id"]) or {}
-    email_logs = list_user_email_logs(user["id"], limit=15)
-    last_email_log = get_last_user_email_log(user["id"])
-    form_payload = {
-        "scope": "latest",
-        "tone": "customer",
-        "case_id": "",
-    }
-    if email_form:
-        form_payload.update(email_form)
     return render_template(
         "profile.html",
         username=user["name"],
@@ -2443,14 +2343,10 @@ def render_profile_page(
         insights=insights,
         recent_records=recent,
         user_cases=cases,
-        email_logs=email_logs,
-        last_email_log=last_email_log,
         profile_data=profile_data,
         avatar_warning=avatar_warning,
         email_warning=email_warning,
         email_success=email_success,
-        email_form=form_payload,
-        smtp_ready=smtp_ready(),
         toast=parse_toast(),
     )
 
@@ -2480,11 +2376,7 @@ def profile_update(user):
     if email_in_use(email_norm, exclude_user_id=user["id"]):
         return render_profile_page(user, email_warning="อีเมลนี้ถูกใช้งานแล้ว")
 
-    old_email = (user.get("email") or "").strip().lower()
     set_user_profile(user["id"], email=email_norm, age=age, gender=gender)
-    if old_email != email_norm:
-        set_email_verified(user["id"], verified=False)
-        user["email_verified"] = False
     user["email"] = email_norm
     user["age"] = age
     user["gender"] = gender
@@ -2501,66 +2393,13 @@ def profile_update(user):
 @app.route("/profile/email-verify/send", methods=["POST"])
 @require_login
 def profile_email_verify_send(user):
-    profile_data = get_user_profile(user["id"]) or {}
-    to_email = (profile_data.get("email") or "").strip().lower()
-    if not to_email:
-        return render_profile_page(user, email_warning="กรุณาตั้งค่าอีเมลก่อนยืนยัน")
-    if profile_data.get("email_verified"):
-        return render_profile_page(user, email_success="อีเมลนี้ยืนยันแล้ว")
-    if not smtp_ready():
-        return render_profile_page(user, email_warning="ระบบยังไม่ตั้งค่า SMTP สำหรับส่งรหัสยืนยัน")
-
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    code_hash = hash_token(code)
-    expires_at = (datetime.now() + timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
-    create_email_verify_code(user["id"], code_hash, expires_at)
-
-    subject = "รหัสยืนยันอีเมล AutoScope AI"
-    body = (
-        f"สวัสดี {user['name']}\n\n"
-        f"รหัสยืนยันอีเมลของคุณคือ: {code}\n"
-        "รหัสนี้มีอายุ 10 นาที\n\n"
-        "หากคุณไม่ได้เป็นผู้ดำเนินการ โปรดละเว้นอีเมลฉบับนี้"
-    )
-    try:
-        send_email_message(to_email, subject, body)
-        add_email_log(user["id"], to_email, subject, "sent", meta={"event": "email_verify_send"})
-        return render_profile_page(user, email_success=f"ส่งรหัสยืนยันไปที่ {to_email} แล้ว")
-    except Exception as err:
-        add_email_log(
-            user["id"],
-            to_email,
-            subject,
-            "failed",
-            error_text=str(err),
-            meta={"event": "email_verify_send"},
-        )
-        return render_profile_page(user, email_warning="ส่งรหัสยืนยันไม่สำเร็จ")
+    return render_profile_page(user, email_warning="ระบบปิดฟังก์ชันยืนยันอีเมลแล้ว")
 
 
 @app.route("/profile/email-verify/confirm", methods=["POST"])
 @require_login
 def profile_email_verify_confirm(user):
-    input_code = (request.form.get("verify_code") or "").strip()
-    if not re.fullmatch(r"\d{6}", input_code):
-        return render_profile_page(user, email_warning="กรุณากรอกรหัสยืนยัน 6 หลัก")
-    latest_code = get_latest_active_email_verify_code(user["id"])
-    if not latest_code:
-        return render_profile_page(user, email_warning="ไม่พบรหัสยืนยันที่ใช้งานได้ กรุณาขอรหัสใหม่")
-    try:
-        expires_at = datetime.strptime(latest_code["expires_at"], "%Y-%m-%d %H:%M:%S")
-    except Exception:
-        expires_at = datetime.now() - timedelta(minutes=1)
-    if datetime.now() > expires_at:
-        return render_profile_page(user, email_warning="รหัสยืนยันหมดอายุแล้ว กรุณาขอรหัสใหม่")
-    if hash_token(input_code) != latest_code.get("code_hash"):
-        return render_profile_page(user, email_warning="รหัสยืนยันไม่ถูกต้อง")
-    consume_email_verify_code(latest_code["id"])
-    set_email_verified(user["id"], verified=True)
-    user["email_verified"] = True
-    session["user"] = user
-    audit("profile.email_verified", user=user, target=f"user:{user['id']}")
-    return render_profile_page(user, email_success="ยืนยันอีเมลสำเร็จแล้ว")
+    return render_profile_page(user, email_warning="ระบบปิดฟังก์ชันยืนยันอีเมลแล้ว")
 
 
 @app.route("/profile/onboarding-done", methods=["POST"])
@@ -2594,85 +2433,11 @@ def profile_avatar_upload(user):
 @app.route("/profile/email-summary", methods=["POST"])
 @require_login
 def profile_email_summary(user):
-    summary_scope = (request.form.get("summary_scope") or "latest").strip().lower()
-    summary_tone = normalize_summary_tone(request.form.get("summary_tone"))
-    case_id_raw = (request.form.get("case_id") or "").strip()
-    email_form = {
-        "scope": summary_scope,
-        "tone": summary_tone,
-        "case_id": case_id_raw,
-    }
-    ok, msg = send_summary_email_for_user(
-        user,
-        scope=summary_scope,
-        tone=summary_tone,
-        case_id=case_id_raw if case_id_raw else None,
-    )
-    if ok:
-        return render_profile_page(user, email_success=msg, email_form=email_form)
-    return render_profile_page(user, email_warning=msg, email_form=email_form)
+    return render_profile_page(user, email_warning="ระบบปิดฟังก์ชันส่งสรุปเข้าอีเมลแล้ว")
 
 
 def send_summary_email_for_user(user, scope, tone, case_id=None):
-    profile_data = get_user_profile(user["id"]) or {}
-    to_email = (profile_data.get("email") or "").strip()
-    if not to_email:
-        return False, "บัญชีนี้ยังไม่ได้ตั้งค่าอีเมล"
-    if not smtp_ready():
-        return False, "ระบบยังไม่ตั้งค่า SMTP สำหรับส่งอีเมล"
-
-    scope = (scope or "latest").strip().lower()
-    tone = normalize_summary_tone(tone)
-    case_id_raw = str(case_id).strip() if case_id is not None else ""
-    subject = "สรุปผลจาก AutoScope AI"
-    body = ""
-    if scope == "case":
-        if not case_id_raw.isdigit():
-            return False, "กรุณาเลือกเคสก่อนส่งอีเมล"
-        case_data = get_case_detail(int(case_id_raw), user["id"])
-        if not case_data:
-            return False, "ไม่พบข้อมูลเคสที่เลือก"
-        subject = f"สรุปเคส #{int(case_id_raw):06d} จาก AutoScope AI"
-        body = (
-            f"สวัสดี {user['name']}\n\n"
-            f"{build_case_summary(case_data, tone)}\n\n"
-            "หมายเหตุ: ข้อมูลนี้ใช้ประกอบการประเมินเบื้องต้น ควรยืนยันหน้างานก่อนซ่อมจริง"
-        )
-    else:
-        latest = get_user_history(user["id"], limit=1)
-        if not latest:
-            return False, "ยังไม่มีข้อมูลวิเคราะห์สำหรับส่งอีเมล"
-        row = latest[0]
-        subject = "สรุปผลวิเคราะห์ล่าสุดจาก AutoScope AI"
-        body = (
-            f"สวัสดี {user['name']}\n\n"
-            f"{incident_summary_from_history_row(row, tone)}\n\n"
-            f"ข้อมูลอ้างอิง: วันที่ {row.get('datetime')} | ตำแหน่ง {row.get('part')} | "
-            f"ผล {row.get('result')} | confidence {row.get('confidence')}%\n"
-            "หมายเหตุ: ผลนี้เป็นการประเมินเบื้องต้นจาก AI ควรตรวจยืนยันโดยผู้เชี่ยวชาญก่อนซ่อมจริง"
-        )
-    try:
-        send_email_message(to_email, subject, body)
-        add_email_log(
-            user["id"],
-            to_email,
-            subject,
-            "sent",
-            meta={"scope": scope, "tone": tone, "case_id": case_id_raw or None},
-        )
-        audit("email.summary.send", user=user, target=to_email, details={"scope": scope, "tone": tone, "case_id": case_id_raw or None})
-        return True, f"ส่งสรุปแบบ {scope} ({tone}) ไปที่ {to_email} แล้ว"
-    except Exception as err:
-        add_email_log(
-            user["id"],
-            to_email,
-            subject,
-            "failed",
-            error_text=str(err),
-            meta={"scope": scope, "tone": tone, "case_id": case_id_raw or None},
-        )
-        app.logger.warning("summary email send failed user=%s email=%s err=%s", user["name"], to_email, err)
-        return False, "ส่งอีเมลไม่สำเร็จ กรุณาตรวจสอบการตั้งค่า SMTP"
+    return False, "ระบบปิดฟังก์ชันส่งสรุปเข้าอีเมลแล้ว"
 
 
 # ================== ADMIN ==================
@@ -2892,6 +2657,55 @@ def export_csv(user):
     )
 
 
+@app.route("/history/export_pdf")
+@require_login
+def export_history_pdf(user):
+    summary_tone = normalize_summary_tone(request.args.get("summary_tone"))
+    part = (request.args.get("part") or "").strip()
+    result = (request.args.get("result") or "").strip()
+    date_from = (request.args.get("date_from") or "").strip()
+    date_to = (request.args.get("date_to") or "").strip()
+    sort = (request.args.get("sort") or "date_desc").strip().lower()
+    if sort not in {"date_desc", "date_asc", "confidence_desc", "confidence_asc", "severity_desc", "severity_asc"}:
+        sort = "date_desc"
+
+    rows = get_user_history(
+        user["id"],
+        part=part or None,
+        result=result or None,
+        date_from=date_from or None,
+        date_to=date_to or None,
+        sort_by=sort,
+        limit=None,
+        offset=None,
+    )
+    if not rows:
+        return Response("no history data", status=404, mimetype="text/plain")
+
+    payload = render_history_pdf_bytes(user["name"], rows, summary_tone=summary_tone)
+    audit(
+        "history.export_pdf",
+        user=user,
+        target="history",
+        details={
+            "summary_tone": summary_tone,
+            "count": len(rows),
+            "part": part or None,
+            "result": result or None,
+            "date_from": date_from or None,
+            "date_to": date_to or None,
+            "sort": sort,
+        },
+    )
+    return Response(
+        payload,
+        mimetype="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="history_{user["name"]}_{summary_tone}.pdf"'
+        },
+    )
+
+
 @app.route("/report/latest")
 @require_login
 def report_latest(user):
@@ -2928,10 +2742,55 @@ def report_latest(user):
 @require_login
 def report_latest_email(user):
     summary_tone = normalize_summary_tone(request.form.get("summary_tone"))
-    ok, msg = send_summary_email_for_user(user, scope="latest", tone=summary_tone)
-    if ok:
-        return toast_redirect(f"/report/latest?summary_tone={summary_tone}", "ok", msg)
-    return toast_redirect(f"/report/latest?summary_tone={summary_tone}", "error", msg)
+    return toast_redirect(
+        f"/report/latest?summary_tone={summary_tone}",
+        "error",
+        "ระบบปิดฟังก์ชันส่งรายงานเข้าอีเมลแล้ว",
+    )
+
+
+def load_pdf_font(size):
+    candidates = [
+        "C:/Windows/Fonts/THSarabunNew.ttf",
+        "C:/Windows/Fonts/tahoma.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size=size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def draw_wrapped_text(draw, text, font, x, y, max_width, line_height, fill):
+    paragraphs = str(text or "").splitlines() or [""]
+    for paragraph in paragraphs:
+        chunk = ""
+        for ch in paragraph:
+            probe = chunk + ch
+            width = draw.textlength(probe, font=font)
+            if width > max_width and chunk:
+                draw.text((x, y), chunk, fill=fill, font=font)
+                y += line_height
+                chunk = ch
+            else:
+                chunk = probe
+        draw.text((x, y), chunk, fill=fill, font=font)
+        y += line_height
+    return y
+
+
+def resolve_local_image_path(image_path):
+    norm = (image_path or "").strip().replace("\\", "/")
+    if not norm:
+        return None
+    candidates = [norm, norm.lstrip("/"), os.path.join(os.getcwd(), norm.lstrip("/"))]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return None
 
 
 def render_report_pdf_bytes(user_name, row, summary_tone="customer", incident_summary=None):
@@ -2957,22 +2816,8 @@ def render_report_pdf_bytes(user_name, row, summary_tone="customer", incident_su
     canvas = Image.new("RGB", (page_w, page_h), color=(255, 255, 255))
     draw = ImageDraw.Draw(canvas)
 
-    def load_font(size):
-        candidates = [
-            "C:/Windows/Fonts/THSarabunNew.ttf",
-            "C:/Windows/Fonts/tahoma.ttf",
-            "C:/Windows/Fonts/arial.ttf",
-        ]
-        for path in candidates:
-            if os.path.exists(path):
-                try:
-                    return ImageFont.truetype(path, size=size)
-                except Exception:
-                    continue
-        return ImageFont.load_default()
-
-    title_font = load_font(36)
-    body_font = load_font(24)
+    title_font = load_pdf_font(36)
+    body_font = load_pdf_font(24)
 
     y = 70
     draw.text((70, y), lines[0], fill=(20, 40, 36), font=title_font)
@@ -2981,26 +2826,120 @@ def render_report_pdf_bytes(user_name, row, summary_tone="customer", incident_su
     for line in lines[1:]:
         text = str(line or "")
         # Wrap line manually to keep content inside page width.
-        chunk = ""
-        for ch in text:
-            probe = chunk + ch
-            w = draw.textlength(probe, font=body_font)
-            if w > max_text_width and chunk:
-                draw.text((70, y), chunk, fill=(35, 55, 49), font=body_font)
-                y += 36
-                chunk = ch
-            else:
-                chunk = probe
-        if chunk:
-            draw.text((70, y), chunk, fill=(35, 55, 49), font=body_font)
-            y += 36
-        else:
-            y += 36
+        y = draw_wrapped_text(
+            draw,
+            text,
+            font=body_font,
+            x=70,
+            y=y,
+            max_width=max_text_width,
+            line_height=36,
+            fill=(35, 55, 49),
+        )
+
+    img_path = resolve_local_image_path(row.get("image_path"))
+    if img_path:
+        try:
+            img = Image.open(img_path).convert("RGB")
+            max_w = page_w - 140
+            max_h = max(80, page_h - y - 70)
+            img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+            x = (page_w - img.width) // 2
+            canvas.paste(img, (x, y))
+        except Exception:
+            pass
 
     import io as _io
 
     buf = _io.BytesIO()
     canvas.save(buf, format="PDF", resolution=150.0)
+    return buf.getvalue()
+
+
+def render_history_pdf_bytes(user_name, rows, summary_tone="customer"):
+    page_w, page_h = 1240, 1754  # Approx A4 portrait at 150 DPI.
+    title_font = load_pdf_font(34)
+    body_font = load_pdf_font(24)
+    small_font = load_pdf_font(20)
+    max_text_width = page_w - 140
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    pages = []
+    total = len(rows)
+
+    for index, row in enumerate(rows, start=1):
+        canvas = Image.new("RGB", (page_w, page_h), color=(255, 255, 255))
+        draw = ImageDraw.Draw(canvas)
+        y = 60
+
+        draw.text(
+            (70, y),
+            f"AutoScope AI - History Report ({index}/{total})",
+            fill=(20, 40, 36),
+            font=title_font,
+        )
+        y += 56
+        draw.text(
+            (70, y),
+            f"Generated: {generated_at} | User: {user_name} | Tone: {summary_tone}",
+            fill=(40, 64, 58),
+            font=small_font,
+        )
+        y += 48
+
+        lines = [
+            f"Date: {row.get('datetime', '-')}",
+            f"Part: {row.get('part', '-')}",
+            f"Result: {row.get('result', '-')}",
+            f"Confidence: {row.get('confidence', '-')}",
+            f"Trust: {row.get('trust', '-')}",
+            f"Model: {row.get('model_version', '-')}",
+            f"Estimated Cost (THB): {row.get('est_cost_min', 0)} - {row.get('est_cost_max', 0)}",
+            "Incident Summary:",
+            incident_summary_from_history_row(row, summary_tone),
+        ]
+        for text in lines:
+            y = draw_wrapped_text(
+                draw,
+                text,
+                font=body_font,
+                x=70,
+                y=y,
+                max_width=max_text_width,
+                line_height=34,
+                fill=(35, 55, 49),
+            )
+
+        y += 8
+        image_path = resolve_local_image_path(row.get("image_path"))
+        if image_path and y < page_h - 120:
+            try:
+                img = Image.open(image_path).convert("RGB")
+                max_w = page_w - 140
+                max_h = page_h - y - 80
+                if max_h > 80:
+                    img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+                    x = (page_w - img.width) // 2
+                    canvas.paste(img, (x, y))
+                else:
+                    draw.text((70, y), "รูปมีขนาดใหญ่เกินพื้นที่หน้าเอกสาร", fill=(120, 82, 42), font=small_font)
+            except Exception:
+                draw.text((70, y), "ไม่สามารถโหลดรูปจากไฟล์ได้", fill=(120, 82, 42), font=small_font)
+        else:
+            draw.text((70, y), "ไม่พบรูปภาพของรายการนี้", fill=(120, 82, 42), font=small_font)
+
+        draw.text((70, page_h - 45), f"History ID: {row.get('id', '-')}", fill=(90, 90, 90), font=small_font)
+        pages.append(canvas)
+
+    import io as _io
+
+    buf = _io.BytesIO()
+    pages[0].save(
+        buf,
+        format="PDF",
+        resolution=150.0,
+        save_all=True,
+        append_images=pages[1:],
+    )
     return buf.getvalue()
 
 
@@ -3097,11 +3036,7 @@ def case_detail_page(user, case_id):
 @app.route("/cases/<int:case_id>/email-summary", methods=["POST"])
 @require_login
 def case_email_summary(user, case_id):
-    summary_tone = normalize_summary_tone(request.form.get("summary_tone"))
-    ok, msg = send_summary_email_for_user(user, scope="case", tone=summary_tone, case_id=case_id)
-    if ok:
-        return toast_redirect(f"/cases/{case_id}", "ok", msg)
-    return toast_redirect(f"/cases/{case_id}", "error", msg)
+    return toast_redirect(f"/cases/{case_id}", "error", "ระบบปิดฟังก์ชันส่งสรุปเคสเข้าอีเมลแล้ว")
 
 
 @app.route("/api/cases/<int:case_id>/favorite", methods=["POST"])
