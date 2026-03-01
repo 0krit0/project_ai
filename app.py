@@ -1657,7 +1657,18 @@ def register_login_attempt(username, success=False):
 def render_index(user, **kwargs):
     quick_stats, recent_records = get_dashboard_data(user["id"])
     profile_data = get_user_profile(user["id"]) or {}
-    selected_part = kwargs.get("selected_part") or next(iter(RULES.keys()))
+    selected_parts = kwargs.get("selected_parts")
+    if selected_parts is None:
+        legacy_part = kwargs.get("selected_part")
+        selected_parts = [legacy_part] if legacy_part else [next(iter(RULES.keys()))]
+    elif isinstance(selected_parts, str):
+        selected_parts = [selected_parts]
+    else:
+        selected_parts = [p for p in selected_parts if p]
+        if not selected_parts:
+            selected_parts = [next(iter(RULES.keys()))]
+    selected_part = selected_parts[0]
+    selected_part_label = kwargs.get("selected_part_label") or ", ".join(selected_parts)
     selected_summary_tone = normalize_summary_tone(kwargs.get("selected_summary_tone"))
     selected_ui_depth_mode = normalize_ui_depth_mode(
         kwargs.get("selected_ui_depth_mode") or session.get("analysis_ui_depth_mode")
@@ -1669,6 +1680,8 @@ def render_index(user, **kwargs):
         "quick_stats": quick_stats,
         "recent_records": recent_records,
         "selected_part": selected_part,
+        "selected_parts": selected_parts,
+        "selected_part_label": selected_part_label,
         "selected_summary_tone": selected_summary_tone,
         "selected_ui_depth_mode": selected_ui_depth_mode,
         "model_version": MODEL_VERSION,
@@ -2003,17 +2016,29 @@ def index(user):
                 None,
             )
 
+        raw_parts = [(p or "").strip() for p in request.form.getlist("parts")]
+        if not raw_parts:
+            legacy_part = (request.form.get("part") or "").strip()
+            if legacy_part:
+                raw_parts = [legacy_part]
+        parts = []
+        for p in raw_parts:
+            if p and p not in parts:
+                parts.append(p)
+        primary_part = parts[0] if parts else None
+
         if rate_limit_error:
             return render_index(
                 user,
                 warning=rate_limit_error,
+                selected_parts=parts,
+                selected_part=primary_part,
                 selected_summary_tone=summary_tone,
                 selected_ui_depth_mode=ui_depth_mode,
                 selected_case=selected_case,
                 selected_case_image_id=selected_case_image_id,
             )
 
-        part = request.form.get("part")
         files = [f for f in request.files.getlist("file") if (f.filename or "").strip()]
         file = files[0] if files else None
 
@@ -2034,28 +2059,32 @@ def index(user):
                 return render_index(
                     user,
                     warning="ไม่พบรูปจากเคสที่เลือก",
-                    selected_part=part,
+                    selected_parts=parts,
+                    selected_part=primary_part,
                     selected_summary_tone=summary_tone,
                     selected_ui_depth_mode=ui_depth_mode,
                     selected_case=selected_case,
                     selected_case_image_id=selected_case_image_id,
                 )
 
-        if not part or not file:
+        if not parts or not file:
             return render_index(
                 user,
                 warning="กรุณาเลือกตำแหน่งและเลือกรูปอย่างน้อย 1 รูป",
-                selected_part=part,
+                selected_parts=parts,
+                selected_part=primary_part,
                 selected_summary_tone=summary_tone,
                 selected_ui_depth_mode=ui_depth_mode,
                 selected_case=selected_case,
                 selected_case_image_id=selected_case_image_id,
             )
-        if part not in RULES:
+        invalid_parts = [p for p in parts if p not in RULES]
+        if invalid_parts:
             return render_index(
                 user,
-                warning="ตำแหน่งที่เลือกไม่ถูกต้อง",
-                selected_part=part,
+                warning=f"ตำแหน่งที่เลือกไม่ถูกต้อง: {', '.join(invalid_parts)}",
+                selected_parts=parts,
+                selected_part=primary_part,
                 selected_summary_tone=summary_tone,
                 selected_ui_depth_mode=ui_depth_mode,
                 selected_case=selected_case,
@@ -2067,7 +2096,8 @@ def index(user):
             return render_index(
                 user,
                 warning=upload_error,
-                selected_part=part,
+                selected_parts=parts,
+                selected_part=primary_part,
                 selected_summary_tone=summary_tone,
                 selected_ui_depth_mode=ui_depth_mode,
                 selected_case=selected_case,
@@ -2076,32 +2106,47 @@ def index(user):
 
         try:
             analyze_start = time.perf_counter()
-            result_payload, pipeline_error = run_analysis_pipeline(
-                user, part, file, extra_files=files[1:], summary_tone=summary_tone
-            )
-            if pipeline_error:
-                return render_index(
-                    user,
-                    warning=pipeline_error,
-                    selected_part=part,
-                    selected_summary_tone=summary_tone,
-                    selected_ui_depth_mode=ui_depth_mode,
-                    selected_case=selected_case,
-                    selected_case_image_id=selected_case_image_id,
+            result_payloads = []
+            for part in parts:
+                for f in files:
+                    try:
+                        f.stream.seek(0)
+                    except Exception:
+                        pass
+                current_result, pipeline_error = run_analysis_pipeline(
+                    user, part, file, extra_files=files[1:], summary_tone=summary_tone
                 )
+                if pipeline_error:
+                    return render_index(
+                        user,
+                        warning=f"{part}: {pipeline_error}",
+                        selected_parts=parts,
+                        selected_part=primary_part,
+                        selected_summary_tone=summary_tone,
+                        selected_ui_depth_mode=ui_depth_mode,
+                        selected_case=selected_case,
+                        selected_case_image_id=selected_case_image_id,
+                    )
+                result_payloads.append(current_result)
+            result_payload = result_payloads[0]
             result_payload["inference_seconds"] = round(time.perf_counter() - analyze_start, 2)
 
             if selected_case and result_payload.get("image_path"):
                 note = (
-                    f"analysis:{part} result={result_payload.get('result')} "
+                    f"analysis:{', '.join(parts)} result={result_payload.get('result')} "
                     f"confidence={result_payload.get('confidence')}%"
                 )
                 add_case_image(selected_case["id"], user["id"], result_payload["image_path"], note=note)
+                severity_rank = {"low": 1, "medium": 2, "high": 3}
+                case_result = max(
+                    result_payloads,
+                    key=lambda x: severity_rank.get((x.get("result") or "").lower(), 0),
+                )
                 set_case_prediction(
                     selected_case["id"],
                     user["id"],
-                    result_payload.get("result"),
-                    result_payload.get("confidence"),
+                    case_result.get("result"),
+                    case_result.get("confidence"),
                 )
 
             audit(
@@ -2109,9 +2154,18 @@ def index(user):
                 user=user,
                 target="history",
                 details={
-                    "part": part,
-                    "result": result_payload["result"],
-                    "confidence": result_payload["confidence"],
+                    "part": ", ".join(parts),
+                    "parts": parts,
+                    "results": [
+                        {
+                            "part": p.get("part"),
+                            "result": p.get("result"),
+                            "confidence": p.get("confidence"),
+                        }
+                        for p in result_payloads
+                    ],
+                    "result": result_payloads[0]["result"],
+                    "confidence": result_payloads[0]["confidence"],
                     "model_version": MODEL_VERSION,
                     "case_id": selected_case["id"] if selected_case else None,
                     "case_image_id": selected_case_image_id,
@@ -2119,16 +2173,19 @@ def index(user):
             )
 
             app.logger.info(
-                "analyze user=%s part=%s result=%s confidence=%.2f",
+                "analyze user=%s parts=%s primary_result=%s confidence=%.2f",
                 user["name"],
-                part,
+                ",".join(parts),
                 result_payload["result"],
                 result_payload["confidence"],
             )
 
             return render_index(
                 user,
-                selected_part=part,
+                selected_parts=parts,
+                selected_part=primary_part,
+                selected_part_label=", ".join(parts),
+                multi_part_results=result_payloads,
                 selected_ui_depth_mode=ui_depth_mode,
                 selected_case=selected_case,
                 selected_case_image_id=selected_case_image_id,
@@ -2139,7 +2196,8 @@ def index(user):
             return render_index(
                 user,
                 warning="ไฟล์รูปไม่ถูกต้องหรือไม่สามารถอ่านรูปได้",
-                selected_part=part,
+                selected_parts=parts,
+                selected_part=primary_part,
                 selected_summary_tone=summary_tone,
                 selected_ui_depth_mode=ui_depth_mode,
                 selected_case=selected_case,
@@ -2150,7 +2208,8 @@ def index(user):
             return render_index(
                 user,
                 warning=f"เกิดข้อผิดพลาดระหว่างวิเคราะห์: {err}",
-                selected_part=part,
+                selected_parts=parts,
+                selected_part=primary_part,
                 selected_summary_tone=summary_tone,
                 selected_ui_depth_mode=ui_depth_mode,
                 selected_case=selected_case,

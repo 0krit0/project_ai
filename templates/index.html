@@ -81,16 +81,17 @@
             </div>
             <input type="hidden" name="case_id" value="{{ selected_case.id }}">
             {% endif %}
-            <label for="part">ตำแหน่งความเสียหาย</label>
-            <select id="part" name="part" required>
-              <option value="กันชนหน้า" {% if selected_part == "กันชนหน้า" %}selected{% endif %}>กันชนหน้า</option>
-              <option value="กันชนหลัง" {% if selected_part == "กันชนหลัง" %}selected{% endif %}>กันชนหลัง</option>
-              <option value="ประตู" {% if selected_part == "ประตู" %}selected{% endif %}>ประตู</option>
-              <option value="ฝากระโปรงหน้า" {% if selected_part == "ฝากระโปรงหน้า" %}selected{% endif %}>ฝากระโปรงหน้า</option>
-              <option value="แก้มข้างรถ" {% if selected_part == "แก้มข้างรถ" %}selected{% endif %}>แก้มข้างรถ</option>
-              <option value="ไฟหน้า" {% if selected_part == "ไฟหน้า" %}selected{% endif %}>ไฟหน้า</option>
-              <option value="กระจกรถ" {% if selected_part == "กระจกรถ" %}selected{% endif %}>กระจกรถ</option>
+            <label for="parts">ตำแหน่งความเสียหาย (เลือกได้หลายตำแหน่ง)</label>
+            <select id="parts" name="parts" required multiple size="7">
+              <option value="กันชนหน้า" {% if "กันชนหน้า" in selected_parts %}selected{% endif %}>กันชนหน้า</option>
+              <option value="กันชนหลัง" {% if "กันชนหลัง" in selected_parts %}selected{% endif %}>กันชนหลัง</option>
+              <option value="ประตู" {% if "ประตู" in selected_parts %}selected{% endif %}>ประตู</option>
+              <option value="ฝากระโปรงหน้า" {% if "ฝากระโปรงหน้า" in selected_parts %}selected{% endif %}>ฝากระโปรงหน้า</option>
+              <option value="แก้มข้างรถ" {% if "แก้มข้างรถ" in selected_parts %}selected{% endif %}>แก้มข้างรถ</option>
+              <option value="ไฟหน้า" {% if "ไฟหน้า" in selected_parts %}selected{% endif %}>ไฟหน้า</option>
+              <option value="กระจกรถ" {% if "กระจกรถ" in selected_parts %}selected{% endif %}>กระจกรถ</option>
             </select>
+            <p class="helper">Windows: กด Ctrl ค้างเพื่อเลือกหลายตำแหน่ง | Mac: กด Command ค้าง</p>
 
             <label for="file">รูปความเสียหาย</label>
             <input id="file" type="file" name="file" accept="image/*" multiple>
@@ -143,6 +144,16 @@
           {% if result %}
           <article class="card focus-card">
           <h3>ผลการประเมิน</h3>
+          {% if multi_part_results and (multi_part_results|length) > 1 %}
+          <section class="quality-box" style="margin-bottom:12px">
+            <div class="label">ผลหลายตำแหน่งที่เลือก</div>
+            <ul class="advice-list">
+              {% for m in multi_part_results %}
+              <li>{{ m.part }}: <span class="badge {{ m.result }}">{{ m.result }}</span> | ความมั่นใจ {{ m.confidence }}% | ค่าใช้จ่าย {{ "{:,}".format(m.est_cost_min) }}-{{ "{:,}".format(m.est_cost_max) }} บาท</li>
+              {% endfor %}
+            </ul>
+          </section>
+          {% endif %}
           <div class="result-shell">
             <section class="decision-panel">
               <div class="decision-row">
@@ -429,7 +440,7 @@
 
             <section class="snapshot-box">
               <div class="label">สรุปผลแบบอ่านง่าย</div>
-              <div id="analysisSnapshot" class="snapshot-text">{{ selected_part }} | {{ result }} | {{ confidence }}% | {{ trust }}</div>
+              <div id="analysisSnapshot" class="snapshot-text">{{ selected_part_label or selected_part }} | {{ result }} | {{ confidence }}% | {{ trust }}</div>
               {% if incident_summaries %}
               <div class="summary-tones">
                 <button class="btn ghost summary-tone-btn {% if selected_summary_tone == 'customer' %}is-active{% endif %}" type="button" data-tone="customer">แบบทั่วไป</button>
@@ -590,6 +601,7 @@
 (function () {
   const analyzeForm = document.getElementById('analyzeForm');
   const analyzeBtn = document.getElementById('analyzeBtn');
+  const partsSelect = document.getElementById('parts');
   const fileInput = document.getElementById('file');
   const previewImage = document.getElementById('previewImage');
   const previewHint = document.getElementById('previewHint');
@@ -614,6 +626,14 @@
 
   if (analyzeForm && analyzeBtn) {
     analyzeForm.addEventListener('submit', function (e) {
+      const selectedParts = partsSelect
+        ? Array.from(partsSelect.selectedOptions || []).map(function (o) { return o.value; }).filter(Boolean)
+        : [];
+      if (partsSelect && selectedParts.length === 0) {
+        e.preventDefault();
+        alert('กรุณาเลือกตำแหน่งความเสียหายอย่างน้อย 1 ตำแหน่ง');
+        return;
+      }
       const hasUpload = fileInput && fileInput.files && fileInput.files.length > 0;
       const hasCaseImage = caseImageSelect && caseImageSelect.value;
       if (!hasUpload && !hasCaseImage) {

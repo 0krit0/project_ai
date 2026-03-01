@@ -943,6 +943,17 @@ textarea {
   gap: 8px;
 }
 
+.history-filter-actions {
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.history-filter-actions .btn {
+  white-space: nowrap;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -1365,6 +1376,12 @@ th {
   .filter-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .history-filter-actions {
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
   }
 
   .table-wrap {
